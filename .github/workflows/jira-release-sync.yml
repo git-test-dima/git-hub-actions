@@ -207,6 +207,7 @@ jobs:
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW }}
 
       - name: Perform back-merge
         run: |
@@ -214,6 +215,9 @@ jobs:
           echo "🔧 Configuring Git user"
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+
+          echo "🔑 Setting up authentication with Fine-grained PAT"
+          git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
 
           echo "📥 Fetching all branches"
           git fetch --all
