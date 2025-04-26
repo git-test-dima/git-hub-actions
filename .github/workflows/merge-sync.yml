@@ -176,6 +176,9 @@ jobs:
           echo "📥 Fetching all branches"
           git fetch --all
 
+          git fetch origin release:release || echo "⚠️ No remote release branch"
+          git fetch origin dev:dev || echo "⚠️ No remote dev branch"
+
           echo "🔍 Current branch: ${{ github.ref_name }}"
 
           if [[ "${{ github.ref_name }}" == "master" ]]; then
