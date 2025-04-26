@@ -36,25 +36,37 @@ jobs:
 
           if [[ "$BRANCH_NAME" == "develop" ]]; then
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
-          elif [[ "$BRANCH_NAME" == "release" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
-          elif [[ "$BRANCH_NAME" == "master" ]]; then
+          elif [[ "$BRANCH_NAME" == "release" || "$BRANCH_NAME" == "master" ]]; then
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
           fi
 
-          UNRELEASED_VERSIONS=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V)
-
-          echo "Available versions: $UNRELEASED_VERSIONS"
-          echo "Last version found: $LAST_VERSION"
+          echo "Available versions:"
+          echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name'
 
           if [ -z "$LAST_VERSION" ]; then
-            # If no existing version, create a new version
-            echo "No version found, creating new IT1.x.x version"
-            PREFIX="IT"
-            MAJOR=1
-            MINOR=0
-            PATCH=0
+            echo "No unreleased version found, checking released versions..."
+
+            LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+
+            if [ -z "$LAST_RELEASED_VERSION" ]; then
+              echo "No released versions found, defaulting to IT1.0.0"
+              PREFIX="IT"
+              MAJOR=1
+              MINOR=0
+              PATCH=0
+            else
+              echo "Found last released version: $LAST_RELEASED_VERSION"
+              PREFIX=${LAST_RELEASED_VERSION%%[0-9]*}
+              VERSION_NUM=${LAST_RELEASED_VERSION#$PREFIX}
+              MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+              MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+              PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            fi
           else
+            echo "Found last version: $LAST_VERSION"
             PREFIX=${LAST_VERSION%%[0-9]*}
             VERSION_NUM=${LAST_VERSION#$PREFIX}
             MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
@@ -72,11 +84,12 @@ jobs:
           NEW_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
-          echo "Creating or using version $NEW_VERSION..."
+          echo "Creating or using version: $NEW_VERSION"
 
           VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
 
           if [ -z "$VERSION_EXISTS" ]; then
+            echo "Version doesn't exist, creating..."
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X POST "$JIRA_BASE_URL/rest/api/3/version" \
               -H "Content-Type: application/json" \
@@ -86,6 +99,8 @@ jobs:
                 \"projectId\": $PROJECT_ID,
                 \"released\": false
               }"
+          else
+            echo "Version already exists, using existing one."
           fi
 
       - name: Update Jira Issues and Move to RFQA
@@ -192,8 +207,10 @@ jobs:
         if: github.ref_name == 'release' || github.ref_name == 'master'
         uses: peter-evans/create-pull-request@v5
         with:
-          commit-message: "chore: backmerge ${{ github.ref_name }} into ${{ github.ref_name == 'release' && 'develop' || 'release and develop' }}"
+          commit-message: "🔄 chore: backmerge ${{ github.ref_name }} into ${{ github.ref_name == 'release' && 'develop' || 'release and develop' }}"
           branch: backmerge-${{ github.ref_name }}
-          title: "Backmerge from ${{ github.ref_name }}"
+          title: "🔄 Backmerge from ${{ github.ref_name }}"
           body: "Automatic backmerge after release"
           base: ${{ github.ref_name == 'release' && 'develop' || 'release' }}
+          push: true
+          skip-if-no-changes: true
