@@ -1,0 +1,248 @@
+name: Jira Release Manager
+
+on:
+  push:
+    branches:
+      - dev
+      - release
+      - master
+
+jobs:
+  manage-jira-release:
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: https://iamdima.atlassian.net
+      JIRA_PROJECT_KEY: IT
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set branch name
+        run: echo "BRANCH_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+      - name: Get Project ID
+        run: |
+          echo "Fetching project ID..."
+          PROJECT_INFO=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY")
+          PROJECT_ID=$(echo "$PROJECT_INFO" | jq -r '.id')
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+
+      - name: Find or Use Existing Version
+        run: |
+          echo "Finding existing versions..."
+          RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
+
+          if [[ "$BRANCH_NAME" == "dev" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+          elif [[ "$BRANCH_NAME" == "release" || "$BRANCH_NAME" == "master" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
+          fi
+
+          echo "Available versions:"
+          echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name'
+
+          if [ -z "$LAST_VERSION" ]; then
+            echo "No unreleased version found, checking released versions..."
+
+            LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+
+            if [ -z "$LAST_RELEASED_VERSION" ]; then
+              echo "No released versions found, defaulting to IT1.0.0"
+              PREFIX="IT"
+              MAJOR=1
+              MINOR=0
+              PATCH=0
+            else
+              echo "Found last released version: $LAST_RELEASED_VERSION"
+              PREFIX=${LAST_RELEASED_VERSION%%[0-9]*}
+              VERSION_NUM=${LAST_RELEASED_VERSION#$PREFIX}
+              MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+              MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+              PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            fi
+          else
+            echo "Found last version: $LAST_VERSION"
+            PREFIX=${LAST_VERSION%%[0-9]*}
+            VERSION_NUM=${LAST_VERSION#$PREFIX}
+            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+            if [[ "$BRANCH_NAME" == "master" ]]; then
+              PATCH=$((PATCH + 1))
+            else
+              echo "Using existing unreleased version: $LAST_VERSION"
+            fi
+          fi
+
+          NEW_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
+          echo "Creating or using version: $NEW_VERSION"
+
+          VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
+
+          if [ -z "$VERSION_EXISTS" ]; then
+            echo "Version doesn't exist, creating..."
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X POST "$JIRA_BASE_URL/rest/api/3/version" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"description\": \"Auto-created release\",
+                \"name\": \"$NEW_VERSION\",
+                \"projectId\": $PROJECT_ID,
+                \"released\": false
+              }"
+          else
+            echo "Version already exists, using existing one."
+          fi
+
+      - name: Update Jira Issues and Move to RFQA
+        if: (github.ref_name == 'dev' || github.ref_name == 'release') && !contains(github.event.head_commit.message, 'Merge pull request')
+        run: |
+          echo "Updating issues FixVersion and moving to RFQA..."
+          COMMITS=$(git log -1 --pretty=%B)
+          echo "Commits: $COMMITS"
+
+          ISSUE_KEYS=$(echo "$COMMITS" | grep -Eo "$JIRA_PROJECT_KEY-[0-9]+" | uniq)
+
+          for issue in $ISSUE_KEYS; do
+            echo "Processing issue $issue"
+
+            # Update FixVersion
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$issue" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"update\": {
+                  \"fixVersions\": [
+                    {
+                      \"add\": {\"name\": \"$NEW_VERSION\"}
+                    }
+                  ]
+                }
+              }"
+
+            # Get possible transitions
+            TRANSITIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X GET "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
+              -H "Accept: application/json")
+
+            # Find transition ID for RFQA
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name=="RFQA") | .id')
+
+            if [ -n "$TRANSITION_ID" ]; then
+              echo "Moving issue $issue to RFQA with transition ID $TRANSITION_ID"
+
+              curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+                -X POST "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"transition\": {
+                    \"id\": \"$TRANSITION_ID\"
+                  }
+                }"
+            else
+              echo "Transition to RFQA not found for issue $issue, skipping."
+            fi
+          done
+
+      - name: Release version in Jira (only on master)
+        if: github.ref_name == 'master'
+        run: |
+          echo "Releasing version in Jira..."
+
+          VERSIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
+          VERSION_TO_RELEASE=$(echo "$VERSIONS" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
+
+          if [ -n "$VERSION_TO_RELEASE" ]; then
+            VERSION_ID=$(echo "$VERSIONS" | jq -r --arg NAME "$VERSION_TO_RELEASE" '.[] | select(.name == $NAME) | .id')
+            echo "Found version $VERSION_TO_RELEASE (ID: $VERSION_ID), marking as released."
+
+            TODAY=$(date +%Y-%m-%d)
+
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X PUT "$JIRA_BASE_URL/rest/api/3/version/$VERSION_ID" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"released\": true,
+                \"releaseDate\": \"$TODAY\"
+              }"
+          else
+            echo "No unreleased version found to release."
+          fi
+
+      - name: Create GitHub Tag and Release (only on master)
+        if: github.ref_name == 'master'
+        run: |
+          echo "Creating GitHub tag and release..."
+
+          TAG_NAME="v${NEW_VERSION}"
+
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          git tag $TAG_NAME
+          git push origin $TAG_NAME
+
+      - name: Create GitHub Release
+        if: github.ref_name == 'master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.NEW_VERSION }}
+          name: Release v${{ env.NEW_VERSION }}
+          body: |
+            Automated release based on Jira version ${{ env.NEW_VERSION }}
+            (Generated by CI)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare back-merge
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW }}
+
+      - name: Perform back-merge
+        run: |
+          set -eo pipefail
+          echo "🔧 Configuring Git user"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+          echo "🔑 Setting up authentication with Fine-grained PAT"
+          git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
+
+          echo "📥 Fetching all branches"
+          git fetch --all
+
+          echo "🔍 Current branch: ${{ github.ref_name }}"
+
+          if [[ "${{ github.ref_name }}" == "master" ]]; then
+            echo "🚀 Merging master into release"
+            git checkout release
+            git merge master --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git commit -m "🔄 Back-merge master into release"
+            git push origin release
+
+            echo "🚀 Merging master into dev"
+            git checkout dev
+            git merge master --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git commit -m "🔄 Back-merge master into dev"
+            git push origin dev
+
+          elif [[ "${{ github.ref_name }}" == "release" ]]; then
+            echo "🚀 Merging release into dev"
+            git checkout dev
+            git merge release --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git commit -m "🔄 Back-merge release into dev"
+            git push origin dev
+          else
+            echo "ℹ️ No back-merge needed for this branch."
+          fi
