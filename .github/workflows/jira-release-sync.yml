@@ -76,8 +76,7 @@ jobs:
             if [[ "$BRANCH_NAME" == "master" ]]; then
               PATCH=$((PATCH + 1))
             else
-              MINOR=$((MINOR + 1))
-              PATCH=0
+              echo "Using existing unreleased version: $LAST_VERSION"
             fi
           fi
 
