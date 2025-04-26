@@ -34,14 +34,17 @@ jobs:
           echo "Finding existing versions..."
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
-          if [[ "$BRANCH_NAME" == "release" ]]; then
+          if [[ "$BRANCH_NAME" == "develop" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+          elif [[ "$BRANCH_NAME" == "release" ]]; then
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
-          elif [[ "$BRANCH_NAME" == "develop" ]]; then
-           LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
           elif [[ "$BRANCH_NAME" == "master" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
           fi
 
+          UNRELEASED_VERSIONS=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V)
+
+          echo "Available versions: $UNRELEASED_VERSIONS"
           echo "Last version found: $LAST_VERSION"
 
           if [ -z "$LAST_VERSION" ]; then
