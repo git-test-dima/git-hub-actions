@@ -103,7 +103,7 @@ jobs:
           fi
 
       - name: Update Jira Issues and Move to RFQA
-        if: github.ref_name == 'dev' && !contains(github.event.head_commit.message, 'Merge pull request')
+        if: (github.ref_name == 'dev' || github.ref_name == 'release') && !contains(github.event.head_commit.message, 'Merge pull request')
         run: |
           echo "Updating issues FixVersion and moving to RFQA..."
           COMMITS=$(git log -1 --pretty=%B)
