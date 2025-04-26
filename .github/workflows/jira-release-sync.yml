@@ -202,10 +202,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Perform Back-merges
+      - name: Prepare back-merge
         uses: actions/checkout@v3
         with:
           ref: ${{ github.ref_name }}
+
+      - name: Perform back-merge
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
