@@ -149,21 +149,35 @@ jobs:
             fi
           done
 
-      - name: Update package.json and package-lock.json version
+      - name: Update package.json and package-lock.json version if needed
         run: |
-          echo "Updating package.json and package-lock.json to version $NEW_VERSION"
-          npm version --no-git-tag-version "$NEW_VERSION"
+          VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}
+          echo "Target version: $VERSION_WITHOUT_PREFIX"
 
-      - name: Commit updated package files
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current package.json version: $CURRENT_VERSION"
+
+          if [ "$CURRENT_VERSION" = "$VERSION_WITHOUT_PREFIX" ]; then
+            echo "✅ Version is already $CURRENT_VERSION, no update needed."
+            echo "SKIP_VERSION_UPDATE=true" >> $GITHUB_ENV
+          else
+            echo "Updating package.json and package-lock.json to version $VERSION_WITHOUT_PREFIX"
+            npm version --no-git-tag-version "$VERSION_WITHOUT_PREFIX"
+            echo "SKIP_VERSION_UPDATE=false" >> $GITHUB_ENV
+          fi
+
+      - name: Commit updated package files if version changed
+        if: env.SKIP_VERSION_UPDATE == 'false'
         run: |
           echo "Committing package.json and package-lock.json changes..."
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
 
           git add package.json package-lock.json
-          git commit -m "🔖 Update package version to $NEW_VERSION" || echo "No changes to commit."
+          git commit -m "🔖 Update package version to $NEW_VERSION"
 
-      - name: Push changes
+      - name: Push changes if version changed
+        if: env.SKIP_VERSION_UPDATE == 'false'
         run: |
           echo "Pushing package version changes..."
           git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
@@ -195,7 +209,7 @@ jobs:
           fi
 
       - name: Create GitHub Tag and Release (only on master)
-        if: github.ref_name == 'master'
+        if: github.ref_name == 'master' && env.SKIP_VERSION_UPDATE == 'false'
         run: |
           echo "Creating GitHub tag and release..."
 
@@ -208,7 +222,7 @@ jobs:
           git push origin $TAG_NAME
 
       - name: Create GitHub Release
-        if: github.ref_name == 'master'
+        if: github.ref_name == 'master' && env.SKIP_VERSION_UPDATE == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.NEW_VERSION }}
