@@ -103,7 +103,7 @@ jobs:
           fi
 
       - name: Update Jira Issues and Move to RFQA
-        if: github.ref_name == 'dev' && !contains(github.event.head_commit.message, 'Merge pull request')
+        if: (github.ref_name == 'dev' || github.ref_name == 'release') && !contains(github.event.head_commit.message, 'Merge pull request')
         run: |
           echo "Updating issues FixVersion and moving to RFQA..."
           COMMITS=$(git log -1 --pretty=%B)
@@ -206,21 +206,43 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW }}
 
       - name: Perform back-merge
         run: |
+          set -eo pipefail
+          echo "🔧 Configuring Git user"
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+
+          echo "🔑 Setting up authentication with Fine-grained PAT"
+          git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
+
+          echo "📥 Fetching all branches"
           git fetch --all
+
+          echo "🔍 Current branch: ${{ github.ref_name }}"
+
           if [[ "${{ github.ref_name }}" == "master" ]]; then
+            echo "🚀 Merging master into release"
             git checkout release
-            git merge master --no-ff -m "🔄 Back-merge master into release"
+            git merge master --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git commit -m "🔄 Back-merge master into release"
             git push origin release
+
+            echo "🚀 Merging master into dev"
             git checkout dev
-            git merge master --no-ff -m "🔄 Back-merge master into dev"
+            git merge master --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git commit -m "🔄 Back-merge master into dev"
             git push origin dev
+
           elif [[ "${{ github.ref_name }}" == "release" ]]; then
+            echo "🚀 Merging release into dev"
             git checkout dev
-            git merge release --no-ff -m "🔄 Back-merge release into dev"
+            git merge release --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git commit -m "🔄 Back-merge release into dev"
             git push origin dev
+          else
+            echo "ℹ️ No back-merge needed for this branch."
           fi
