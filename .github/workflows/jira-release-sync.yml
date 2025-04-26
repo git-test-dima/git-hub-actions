@@ -3,7 +3,7 @@ name: Jira Release Manager
 on:
   push:
     branches:
-      - develop
+      - dev
       - release
       - master
 
@@ -34,7 +34,7 @@ jobs:
           echo "Finding existing versions..."
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
-          if [[ "$BRANCH_NAME" == "develop" ]]; then
+          if [[ "$BRANCH_NAME" == "dev" ]]; then
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
           elif [[ "$BRANCH_NAME" == "release" || "$BRANCH_NAME" == "master" ]]; then
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
@@ -103,7 +103,7 @@ jobs:
           fi
 
       - name: Update Jira Issues and Move to RFQA
-        if: github.ref_name == 'develop' && !contains(github.event.head_commit.message, 'Merge pull request')
+        if: github.ref_name == 'dev' && !contains(github.event.head_commit.message, 'Merge pull request')
         run: |
           echo "Updating issues FixVersion and moving to RFQA..."
           COMMITS=$(git log -1 --pretty=%B)
@@ -218,11 +218,11 @@ jobs:
             git checkout release
             git merge master --no-ff -m "🔄 Back-merge master into release"
             git push origin release
-            git checkout develop
-            git merge master --no-ff -m "🔄 Back-merge master into develop"
-            git push origin develop
+            git checkout dev
+            git merge master --no-ff -m "🔄 Back-merge master into dev"
+            git push origin dev
           elif [[ "${{ github.ref_name }}" == "release" ]]; then
-            git checkout develop
-            git merge release --no-ff -m "🔄 Back-merge release into develop"
-            git push origin develop
+            git checkout dev
+            git merge release --no-ff -m "🔄 Back-merge release into dev"
+            git push origin dev
           fi
