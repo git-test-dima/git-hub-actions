@@ -45,7 +45,6 @@ jobs:
 
           if [ -z "$LAST_VERSION" ]; then
             echo "No unreleased version found, checking released versions..."
-
             LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
 
             if [ -z "$LAST_RELEASED_VERSION" ]; then
@@ -102,31 +101,6 @@ jobs:
             echo "Version already exists, using existing one."
           fi
 
-      - name: Update package.json and package-lock.json with new version
-        run: |
-          echo "Updating package.json and package-lock.json to version $NEW_VERSION"
-
-          jq ".version = \"${NEW_VERSION}\"" package.json > tmp.$$.json && mv tmp.$$.json package.json
-
-          if [ -f package-lock.json ]; then
-            jq ".version = \"${NEW_VERSION}\"" package-lock.json > tmp.$$.json && mv tmp.$$.json package-lock.json
-          fi
-
-      - name: Commit version bump
-        run: |
-          echo "Committing version bump if there are changes..."
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-
-          git add package.json package-lock.json || true
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "🔖 Bump version to v${NEW_VERSION}"
-            git push origin ${{ github.ref_name }}
-          fi
-
       - name: Update Jira Issues and Move to RFQA
         if: (github.ref_name == 'dev' || github.ref_name == 'release') && !contains(github.event.head_commit.message, 'Merge pull request')
         run: |
@@ -139,6 +113,7 @@ jobs:
           for issue in $ISSUE_KEYS; do
             echo "Processing issue $issue"
 
+            # Update FixVersion
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$issue" \
               -H "Content-Type: application/json" \
@@ -173,6 +148,26 @@ jobs:
               echo "Transition to RFQA not found for issue $issue, skipping."
             fi
           done
+
+      - name: Update package.json and package-lock.json version
+        run: |
+          echo "Updating package.json and package-lock.json to version $NEW_VERSION"
+          npm version --no-git-tag-version "$NEW_VERSION"
+
+      - name: Commit updated package files
+        run: |
+          echo "Committing package.json and package-lock.json changes..."
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          git add package.json package-lock.json
+          git commit -m "🔖 Update package version to $NEW_VERSION" || echo "No changes to commit."
+
+      - name: Push changes
+        run: |
+          echo "Pushing package version changes..."
+          git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
+          git push origin ${{ github.ref_name }}
 
       - name: Release version in Jira (only on master)
         if: github.ref_name == 'master'
