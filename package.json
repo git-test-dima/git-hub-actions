@@ -1,0 +1,20 @@
+{
+  "name": "jira-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "check-commit-msg": "bash scripts/commit-msg"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dzmitry-homza/jira-test.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dzmitry-homza/jira-test/issues"
+  },
+  "homepage": "https://github.com/dzmitry-homza/jira-test#readme"
+}
