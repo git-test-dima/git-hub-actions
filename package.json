@@ -4,8 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "check-commit-msg": "bash scripts/commit-msg"
+    "check-commit-msg": "bash scripts/commit-msg",
+    "prepare": "husky"
   },
   "repository": {
     "type": "git",
@@ -16,5 +18,8 @@
   "bugs": {
     "url": "https://github.com/dzmitry-homza/jira-test/issues"
   },
-  "homepage": "https://github.com/dzmitry-homza/jira-test#readme"
+  "homepage": "https://github.com/dzmitry-homza/jira-test#readme",
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
 }
