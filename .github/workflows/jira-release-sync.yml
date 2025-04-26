@@ -1,85 +1,196 @@
-name: Jira Release Sync
+name: Jira Release Manager
 
 on:
   push:
     branches:
       - develop
+      - release
+      - master
 
 jobs:
-  jira-release-sync:
+  manage-jira-release:
     runs-on: ubuntu-latest
-
     env:
       JIRA_BASE_URL: https://iamdima.atlassian.net
       JIRA_PROJECT_KEY: IT
-      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
       JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install jq
-        run: sudo apt-get install jq
+      - name: Set branch name
+        run: echo "BRANCH_NAME=${GITHUB_REF##*/}" >> $GITHUB_ENV
 
-      - name: Extract issue keys from commits
-        id: extract
+      - name: Get Project ID
         run: |
-          echo "Extracting Jira issues from commits..."
-          git fetch origin develop
-          ISSUE_KEYS=$(git log --pretty=format:"%s" | grep -oE '[A-Z]+-[0-9]+' | sort -u | tr '\n' ',' | sed 's/,$//')
-          echo "Issues found: $ISSUE_KEYS"
-          echo "ISSUE_KEYS=$ISSUE_KEYS" >> $GITHUB_ENV
+          echo "Fetching project ID..."
+          PROJECT_INFO=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY")
+          PROJECT_ID=$(echo "$PROJECT_INFO" | jq -r '.id')
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
 
-      - name: Check existing Jira releases
-        id: check-releases
+      - name: Find or Use Existing Version
         run: |
-          echo "Checking existing releases..."
-          RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
-            -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
+          echo "Finding existing versions..."
+          RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
-          UNRELEASED=$(echo $RESPONSE | jq '.[] | select(.released == false) | .name' | wc -l)
+          if [[ "$BRANCH_NAME" == "release" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
+          elif [[ "$BRANCH_NAME" == "develop" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+          elif [[ "$BRANCH_NAME" == "master" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+          fi
 
-          if [ "$UNRELEASED" -eq 0 ]; then
-            # No open releases - create one
-            DATE=$(date +'%Y-%m-%d')
-            VERSION_NAME="develop-$DATE"
+          echo "Last version found: $LAST_VERSION"
 
-            echo "No unreleased versions found, creating $VERSION_NAME..."
+          if [ -z "$LAST_VERSION" ]; then
+            # If no existing version, create a new version
+            echo "No version found, creating new IT1.x.x version"
+            PREFIX="IT"
+            MAJOR=1
+            MINOR=0
+            PATCH=0
+          else
+            PREFIX=${LAST_VERSION%%[0-9]*}
+            VERSION_NUM=${LAST_VERSION#$PREFIX}
+            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
 
-            PROJECT_ID=$(echo $RESPONSE | jq '.[0].projectId')
+            if [[ "$BRANCH_NAME" == "master" ]]; then
+              PATCH=$((PATCH + 1))
+            else
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            fi
+          fi
 
+          NEW_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
+          echo "Creating or using version $NEW_VERSION..."
+
+          VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
+
+          if [ -z "$VERSION_EXISTS" ]; then
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X POST "$JIRA_BASE_URL/rest/api/3/version" \
               -H "Content-Type: application/json" \
               -d "{
-                \"description\": \"Auto-created from develop branch\",
-                \"name\": \"$VERSION_NAME\",
+                \"description\": \"Auto-created release\",
+                \"name\": \"$NEW_VERSION\",
                 \"projectId\": $PROJECT_ID,
                 \"released\": false
               }"
-
-            echo "NEW_VERSION=$VERSION_NAME" >> $GITHUB_ENV
-          else
-            # If found, pick the first open release
-            VERSION_NAME=$(echo $RESPONSE | jq -r '.[] | select(.released == false) | .name' | head -n1)
-            echo "Found existing unreleased version: $VERSION_NAME"
-            echo "NEW_VERSION=$VERSION_NAME" >> $GITHUB_ENV
           fi
 
-      - name: Assign Fix Version to issues
+      - name: Update Jira Issues and Move to RFQA
+        if: github.ref_name == 'develop' && !contains(github.event.head_commit.message, 'Merge pull request')
         run: |
-          echo "Assigning issues to version: $NEW_VERSION"
-          for ISSUE in $(echo $ISSUE_KEYS | tr ',' '\n'); do
-            echo "Updating $ISSUE..."
+          echo "Updating issues FixVersion and moving to RFQA..."
+          COMMITS=$(git log -1 --pretty=%B)
+          echo "Commits: $COMMITS"
+
+          ISSUE_KEYS=$(echo "$COMMITS" | grep -Eo "$JIRA_PROJECT_KEY-[0-9]+" | uniq)
+
+          for issue in $ISSUE_KEYS; do
+            echo "Processing issue $issue"
+
+            # Update FixVersion
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
-              -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE" \
+              -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$issue" \
               -H "Content-Type: application/json" \
               -d "{
                 \"update\": {
                   \"fixVersions\": [
-                    { \"add\": { \"name\": \"$NEW_VERSION\" } }
+                    {
+                      \"add\": {\"name\": \"$NEW_VERSION\"}
+                    }
                   ]
                 }
               }"
+
+            # Get possible transitions
+            TRANSITIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X GET "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
+              -H "Accept: application/json")
+
+            # Find transition ID for RFQA
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name=="RFQA") | .id')
+
+            if [ -n "$TRANSITION_ID" ]; then
+              echo "Moving issue $issue to RFQA with transition ID $TRANSITION_ID"
+
+              curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+                -X POST "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"transition\": {
+                    \"id\": \"$TRANSITION_ID\"
+                  }
+                }"
+            else
+              echo "Transition to RFQA not found for issue $issue, skipping."
+            fi
           done
+
+      - name: Release version in Jira (only on master)
+        if: github.ref_name == 'master'
+        run: |
+          echo "Releasing version in Jira..."
+
+          VERSIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
+          VERSION_TO_RELEASE=$(echo "$VERSIONS" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
+
+          if [ -n "$VERSION_TO_RELEASE" ]; then
+            VERSION_ID=$(echo "$VERSIONS" | jq -r --arg NAME "$VERSION_TO_RELEASE" '.[] | select(.name == $NAME) | .id')
+            echo "Found version $VERSION_TO_RELEASE (ID: $VERSION_ID), marking as released."
+
+            TODAY=$(date +%Y-%m-%d)
+
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X PUT "$JIRA_BASE_URL/rest/api/3/version/$VERSION_ID" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"released\": true,
+                \"releaseDate\": \"$TODAY\"
+              }"
+          else
+            echo "No unreleased version found to release."
+          fi
+
+      - name: Create GitHub Tag and Release (only on master)
+        if: github.ref_name == 'master'
+        run: |
+          echo "Creating GitHub tag and release..."
+
+          TAG_NAME="v${NEW_VERSION#IT}"
+
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+          git tag $TAG_NAME
+          git push origin $TAG_NAME
+
+      - name: Create GitHub Release
+        if: github.ref_name == 'master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.NEW_VERSION#IT }}
+          name: Release v${{ env.NEW_VERSION#IT }}
+          body: |
+            Automated release based on Jira version ${{ env.NEW_VERSION }}
+            (Generated by CI)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create backmerge PR if needed
+        if: github.ref_name == 'release' || github.ref_name == 'master'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          commit-message: "chore: backmerge ${{ github.ref_name }} into ${{ github.ref_name == 'release' && 'develop' || 'release and develop' }}"
+          branch: backmerge-${{ github.ref_name }}
+          title: "Backmerge from ${{ github.ref_name }}"
+          body: "Automatic backmerge after release"
+          base: ${{ github.ref_name == 'release' && 'develop' || 'release' }}
