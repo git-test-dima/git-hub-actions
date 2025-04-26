@@ -34,49 +34,25 @@ jobs:
           echo "Finding existing versions..."
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
-          if [[ "$BRANCH_NAME" == "develop" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
-          elif [[ "$BRANCH_NAME" == "release" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
-          elif [[ "$BRANCH_NAME" == "master" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
-          fi
-
           UNRELEASED_VERSIONS=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V)
 
           echo "Available versions: $UNRELEASED_VERSIONS"
-          echo "Last version found: $LAST_VERSION"
 
-          if [ -z "$LAST_VERSION" ]; then
-            # If no existing version, create a new version
-            echo "No version found, creating new IT1.x.x version"
-            PREFIX="IT"
-            MAJOR=1
-            MINOR=0
-            PATCH=0
-          else
-            PREFIX=${LAST_VERSION%%[0-9]*}
-            VERSION_NUM=${LAST_VERSION#$PREFIX}
-            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
-            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
-            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
-
-            if [[ "$BRANCH_NAME" == "master" ]]; then
-              PATCH=$((PATCH + 1))
-            else
-              MINOR=$((MINOR + 1))
-              PATCH=0
-            fi
+          if [[ "$BRANCH_NAME" == "develop" ]]; then
+            LAST_VERSION=$(echo "$UNRELEASED_VERSIONS" | tail -n1)
+          elif [[ "$BRANCH_NAME" == "release" || "$BRANCH_NAME" == "master" ]]; then
+            LAST_VERSION=$(echo "$UNRELEASED_VERSIONS" | head -n1)
           fi
 
-          NEW_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "Last version found: $LAST_VERSION"
 
-          echo "Creating or using version $NEW_VERSION..."
+          if [ -n "$LAST_VERSION" ]; then
+            NEW_VERSION="$LAST_VERSION"
+            echo "Using existing version: $NEW_VERSION"
+          else
+            echo "No version found, creating new IT1.0.0 version"
+            NEW_VERSION="IT1.0.0"
 
-          VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
-
-          if [ -z "$VERSION_EXISTS" ]; then
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X POST "$JIRA_BASE_URL/rest/api/3/version" \
               -H "Content-Type: application/json" \
@@ -87,6 +63,8 @@ jobs:
                 \"released\": false
               }"
           fi
+
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
       - name: Update Jira Issues and Move to RFQA
         if: github.ref_name == 'develop' && !contains(github.event.head_commit.message, 'Merge pull request')
