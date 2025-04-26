@@ -176,25 +176,28 @@ jobs:
           echo "📥 Fetching all branches"
           git fetch --all
 
+          git fetch origin release:release || echo "⚠️ No remote release branch"
+          git fetch origin dev:dev || echo "⚠️ No remote dev branch"
+
           echo "🔍 Current branch: ${{ github.ref_name }}"
 
           if [[ "${{ github.ref_name }}" == "master" ]]; then
             echo "🚀 Merging master into release"
             git checkout release
-            git merge master --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git merge master --no-ff --no-commit || { echo "❌ Merge conflict in release"; git merge --abort; exit 1; }
             git commit -m "🔄 Back-merge master into release"
             git push origin release
 
             echo "🚀 Merging master into dev"
             git checkout dev
-            git merge master --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git merge master --no-ff --no-commit || { echo "❌ Merge conflict in dev"; git merge --abort; exit 1; }
             git commit -m "🔄 Back-merge master into dev"
             git push origin dev
 
           elif [[ "${{ github.ref_name }}" == "release" ]]; then
             echo "🚀 Merging release into dev"
             git checkout dev
-            git merge release --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git merge release --no-ff --no-commit || { echo "❌ Merge conflict in dev"; git merge --abort; exit 1; }
             git commit -m "🔄 Back-merge release into dev"
             git push origin dev
           else
