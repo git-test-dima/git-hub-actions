@@ -1,28 +1,31 @@
 #!/bin/bash
 
-FILE='.git/COMMIT_EDITMSG';
-MESSAGE=$(cat "$FILE");
+FILE='.git/COMMIT_EDITMSG'
+MESSAGE=$(cat "$FILE")
 
 get_ticket () {
-   # This sets the TICKET variable globally throughout this file.
-   TICKET=$(grep -o "[A-Z]\{2,7\}-[0-9]\+" <<< "$1");
+    TICKET=$(grep -o "[A-Z]\{2,7\}-[0-9]\+" <<< "$1")
 }
 
-get_ticket "$MESSAGE";
+get_ticket "$MESSAGE"
 
-# If the JIRA ticket is not in the commit message, try to get it from the branch name
-if [ -z "$TICKET" ] ;
-   then
-      BRANCH=$(git rev-parse --abbrev-ref HEAD);
-      BRANCH_TICKET=$(echo $BRANCH | rev | cut -d '/' -f 1 | rev);
+if [ -z "$TICKET" ] ; then
+    BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    get_ticket "$BRANCH"
 
-      get_ticket "$BRANCH_TICKET";
+    if [ -z "$TICKET" ]; then
+        echo "No ticket number (ex: CORE-123) found in commit message or branch. Aborting..."
+        exit 1
+    fi
 
-      if [ -z "$TICKET" ]; then
-         echo "No ticket number (ex: CDO-123) found in commit or branch. Aborting...";
-         exit 1;
-      fi
+    TYPE=$(echo "$MESSAGE" | grep -oE "^[a-z]+")
+    
+    REST=$(echo "$MESSAGE" | sed -E "s/^[a-z]+: //")
 
-      # If a ticket number is found in the branch it will be appended to the commit msg.
-      echo "$MESSAGE [$TICKET]" > "$FILE";
+    if [ -n "$TYPE" ] && [ -n "$REST" ]; then
+        echo "${TYPE}: ${REST} [${TICKET}]" > "$FILE"
+    else
+        echo "Invalid"
+        exit 1
+    fi
 fi

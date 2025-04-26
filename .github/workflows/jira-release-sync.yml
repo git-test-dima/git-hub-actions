@@ -1,0 +1,85 @@
+name: Jira Release Sync
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  jira-release-sync:
+    runs-on: ubuntu-latest
+
+    env:
+      JIRA_BASE_URL: https://iamdima.atlassian.net
+      JIRA_PROJECT_KEY: IT
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: sudo apt-get install jq
+
+      - name: Extract issue keys from commits
+        id: extract
+        run: |
+          echo "Extracting Jira issues from commits..."
+          git fetch origin develop
+          ISSUE_KEYS=$(git log --pretty=format:"%s" | grep -oE '[A-Z]+-[0-9]+' | sort -u | tr '\n' ',' | sed 's/,$//')
+          echo "Issues found: $ISSUE_KEYS"
+          echo "ISSUE_KEYS=$ISSUE_KEYS" >> $GITHUB_ENV
+
+      - name: Check existing Jira releases
+        id: check-releases
+        run: |
+          echo "Checking existing releases..."
+          RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+            -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
+
+          UNRELEASED=$(echo $RESPONSE | jq '.[] | select(.released == false) | .name' | wc -l)
+
+          if [ "$UNRELEASED" -eq 0 ]; then
+            # No open releases - create one
+            DATE=$(date +'%Y-%m-%d')
+            VERSION_NAME="develop-$DATE"
+
+            echo "No unreleased versions found, creating $VERSION_NAME..."
+
+            PROJECT_ID=$(echo $RESPONSE | jq '.[0].projectId')
+
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X POST "$JIRA_BASE_URL/rest/api/3/version" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"description\": \"Auto-created from develop branch\",
+                \"name\": \"$VERSION_NAME\",
+                \"projectId\": $PROJECT_ID,
+                \"released\": false
+              }"
+
+            echo "NEW_VERSION=$VERSION_NAME" >> $GITHUB_ENV
+          else
+            # If found, pick the first open release
+            VERSION_NAME=$(echo $RESPONSE | jq -r '.[] | select(.released == false) | .name' | head -n1)
+            echo "Found existing unreleased version: $VERSION_NAME"
+            echo "NEW_VERSION=$VERSION_NAME" >> $GITHUB_ENV
+          fi
+
+      - name: Assign Fix Version to issues
+        run: |
+          echo "Assigning issues to version: $NEW_VERSION"
+          for ISSUE in $(echo $ISSUE_KEYS | tr ',' '\n'); do
+            echo "Updating $ISSUE..."
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"update\": {
+                  \"fixVersions\": [
+                    { \"add\": { \"name\": \"$NEW_VERSION\" } }
+                  ]
+                }
+              }"
+          done
