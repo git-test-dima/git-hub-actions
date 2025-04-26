@@ -17,6 +17,13 @@ jobs:
       JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
 
     steps:
+      - name: Prepare git environment
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW }}
+
       - uses: actions/checkout@v4
 
       - name: Set branch name
@@ -175,13 +182,6 @@ jobs:
 
           git add package.json package-lock.json
           git commit -m "🔖 Update package version to $NEW_VERSION"
-
-      - name: Prepare git environment
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-          token: ${{ secrets.WORKFLOW }}
 
       - name: Push changes if version changed
         if: env.SKIP_VERSION_UPDATE == 'false'
