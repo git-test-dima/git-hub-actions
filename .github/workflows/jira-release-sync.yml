@@ -45,7 +45,6 @@ jobs:
 
           if [ -z "$LAST_VERSION" ]; then
             echo "No unreleased version found, checking released versions..."
-
             LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
 
             if [ -z "$LAST_RELEASED_VERSION" ]; then
@@ -73,10 +72,18 @@ jobs:
             MINOR=$(echo $VERSION_NUM | cut -d. -f2)
             PATCH=$(echo $VERSION_NUM | cut -d. -f3)
 
+            echo "Checking if this is a merge commit..."
+
             if [[ "$BRANCH_NAME" == "master" ]]; then
-              PATCH=$((PATCH + 1))
-            else
-              echo "Using existing unreleased version: $LAST_VERSION"
+              MERGE_MESSAGE=$(git log -1 --pretty=%B)
+              echo "Last commit message: $MERGE_MESSAGE"
+
+              if echo "$MERGE_MESSAGE" | grep -qE "Merge (pull request|branch).*(release|dev)"; then
+                echo "This is a merge from release or dev. Not incrementing PATCH."
+              else
+                echo "This is not a merge from release or dev. Incrementing PATCH."
+                PATCH=$((PATCH + 1))
+              fi
             fi
           fi
 
@@ -114,7 +121,6 @@ jobs:
           for issue in $ISSUE_KEYS; do
             echo "Processing issue $issue"
 
-            # Update FixVersion
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$issue" \
               -H "Content-Type: application/json" \
@@ -128,12 +134,10 @@ jobs:
                 }
               }"
 
-            # Get possible transitions
             TRANSITIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X GET "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
               -H "Accept: application/json")
 
-            # Find transition ID for RFQA
             TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name=="RFQA") | .id')
 
             if [ -n "$TRANSITION_ID" ]; then
