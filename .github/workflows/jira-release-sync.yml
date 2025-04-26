@@ -202,14 +202,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create backmerge PR if needed
-        if: github.ref_name == 'release' || github.ref_name == 'master'
-        uses: peter-evans/create-pull-request@v5
+      - name: Perform Back-merges
+        uses: actions/checkout@v3
         with:
-          commit-message: "🔄 chore: backmerge ${{ github.ref_name }} into ${{ github.ref_name == 'release' && 'develop' || 'release and develop' }}"
-          branch: backmerge-${{ github.ref_name }}
-          title: "🔄 Backmerge from ${{ github.ref_name }}"
-          body: "Automatic backmerge after release"
-          base: ${{ github.ref_name == 'release' && 'develop' || 'release' }}
-          push: true
-          skip-if-no-changes: true
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Git configuration
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+
+      - name: Merge the base branch into the target branch
+        run: |
+          if [[ "${{ github.ref_name }}" == "master" ]]; then
+            git checkout release
+            git merge master --no-ff -m "🔄 Back-merge master into release"
+            git push origin release
+            git checkout develop
+            git merge master --no-ff -m "🔄 Back-merge master into develop"
+            git push origin develop
+          elif [[ "${{ github.ref_name }}" == "release" ]]; then
+            git checkout develop
+            git merge release --no-ff -m "🔄 Back-merge release into develop"
+            git push origin develop
+          fi
