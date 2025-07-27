@@ -31,9 +31,6 @@ jobs:
         run: |
           echo "Updating issues FixVersion and moving to RFQA..."
           echo "Input new_version: '${{ inputs.new_version }}'"
-          echo "NEW_VERSION env: '$NEW_VERSION'"
-          echo "Input new_version length: $(echo '${{ inputs.new_version }}' | wc -c)"
-          echo "Input new_version empty check: $(if [ -z '${{ inputs.new_version }}' ]; then echo 'empty'; else echo 'not empty'; fi)"
           COMMITS=$(git log -1 --pretty=%B)
           echo "Commits: $COMMITS"
 
