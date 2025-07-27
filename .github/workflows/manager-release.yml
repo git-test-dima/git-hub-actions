@@ -40,10 +40,29 @@ jobs:
           echo "Releasing version in Jira..."
 
           VERSIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
-          VERSION_TO_RELEASE=$(echo "$VERSIONS" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
+
+          # Debug: Print the response structure
+          echo "Versions response structure:"
+          echo "$VERSIONS" | jq -r 'type'
+
+          # Check if response is valid JSON and has the expected structure
+          if ! echo "$VERSIONS" | jq -e '.' > /dev/null 2>&1; then
+            echo "Error: Invalid JSON response from Jira API"
+            echo "Response: $VERSIONS"
+            exit 1
+          fi
+
+          # Check if response is an array
+          if ! echo "$VERSIONS" | jq -e 'type == "array"' > /dev/null 2>&1; then
+            echo "Error: Expected array response from Jira API, got: $(echo "$VERSIONS" | jq -r 'type')"
+            echo "Response: $VERSIONS"
+            exit 1
+          fi
+
+          VERSION_TO_RELEASE=$(echo "$VERSIONS" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
 
           if [ -n "$VERSION_TO_RELEASE" ]; then
-            VERSION_ID=$(echo "$VERSIONS" | jq -r --arg NAME "$VERSION_TO_RELEASE" '.[] | select(.name == $NAME) | .id')
+            VERSION_ID=$(echo "$VERSIONS" | jq -r --arg NAME "$VERSION_TO_RELEASE" '.[] | select(.name == $NAME) | .id' || echo "")
             echo "Found version $VERSION_TO_RELEASE (ID: $VERSION_ID), marking as released."
 
             TODAY=$(date +%Y-%m-%d)
