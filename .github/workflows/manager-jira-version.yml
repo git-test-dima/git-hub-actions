@@ -26,7 +26,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Set branch name
         run: echo "BRANCH_NAME=${{ inputs.branch_name }}" >> $GITHUB_ENV
 
