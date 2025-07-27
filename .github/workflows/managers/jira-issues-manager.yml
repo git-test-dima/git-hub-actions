@@ -1,0 +1,72 @@
+name: Jira Issues Manager
+
+on:
+  workflow_call:
+    inputs:
+      new_version:
+        required: true
+        type: string
+    secrets:
+      JIRA_EMAIL:
+        required: true
+      JIRA_TOKEN:
+        required: true
+
+jobs:
+  manage-jira-issues:
+    runs-on: ubuntu-latest
+    env:
+      JIRA_BASE_URL: https://iamdima.atlassian.net
+      JIRA_PROJECT_KEY: IT
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update Jira Issues and Move to RFQA
+        if: !contains(github.event.head_commit.message , 'Merge pull request')
+        run: |
+          echo "Updating issues FixVersion and moving to RFQA..."
+          COMMITS=$(git log -1 --pretty=%B)
+          echo "Commits: $COMMITS"
+
+          ISSUE_KEYS=$(echo "$COMMITS" | grep -Eo "$JIRA_PROJECT_KEY-[0-9]+" | uniq)
+
+          for issue in $ISSUE_KEYS; do
+            echo "Processing issue $issue"
+
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$issue" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"update\": {
+                  \"fixVersions\": [
+                    {
+                      \"add\": {\"name\": \"${{ inputs.new_version }}\"}
+                    }
+                  ]
+                }
+              }"
+
+            TRANSITIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X GET "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
+              -H "Accept: application/json")
+
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name=="RFQA") | .id')
+
+            if [ -n "$TRANSITION_ID" ]; then
+              echo "Moving issue $issue to RFQA with transition ID $TRANSITION_ID"
+
+              curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+                -X POST "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"transition\": {
+                    \"id\": \"$TRANSITION_ID\"
+                  }
+                }"
+            else
+              echo "Transition to RFQA not found for issue $issue, skipping."
+            fi
+          done

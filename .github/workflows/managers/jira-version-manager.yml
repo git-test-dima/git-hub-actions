@@ -1,0 +1,125 @@
+name: Jira Version Manager
+
+on:
+  workflow_call:
+    inputs:
+      branch_name:
+        required: true
+        type: string
+    secrets:
+      JIRA_EMAIL:
+        required: true
+      JIRA_TOKEN:
+        required: true
+
+jobs:
+  manage-jira-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      NEW_VERSION: ${{ steps.version_output.outputs.NEW_VERSION }}
+      VERSION_WITHOUT_PREFIX: ${{ steps.version_output.outputs.VERSION_WITHOUT_PREFIX }}
+    env:
+      JIRA_BASE_URL: https://iamdima.atlassian.net
+      JIRA_PROJECT_KEY: IT
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set branch name
+        run: echo "BRANCH_NAME=${{ inputs.branch_name }}" >> $GITHUB_ENV
+
+      - name: Get Project ID
+        run: |
+          echo "Fetching project ID..."
+          PROJECT_INFO=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY")
+          PROJECT_ID=$(echo "$PROJECT_INFO" | jq -r '.id')
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+
+      - name: Find or Use Existing Version
+        run: |
+          echo "Finding existing versions..."
+          RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
+
+          if [[ "${{ inputs.branch_name }}" == "dev" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+          elif [[ "${{ inputs.branch_name }}" == "stage" || "${{ inputs.branch_name }}" == "main" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
+          fi
+
+          echo "Available versions:"
+          echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name'
+
+          if [ -z "$LAST_VERSION" ]; then
+            echo "No unreleased version found, checking released versions..."
+            LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+
+            if [ -z "$LAST_RELEASED_VERSION" ]; then
+              echo "No released versions found, defaulting to IT1.0.0"
+              PREFIX="IT"
+              MAJOR=1
+              MINOR=0
+              PATCH=0
+            else
+              echo "Found last released version: $LAST_RELEASED_VERSION"
+              PREFIX=${LAST_RELEASED_VERSION%%[0-9]*}
+              VERSION_NUM=${LAST_RELEASED_VERSION#$PREFIX}
+              MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+              MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+              PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            fi
+          else
+            echo "Found last version: $LAST_VERSION"
+            PREFIX=${LAST_VERSION%%[0-9]*}
+            VERSION_NUM=${LAST_VERSION#$PREFIX}
+            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+            if [[ "${{ inputs.branch_name }}" == "main" ]]; then
+              echo "Checking if this is a merge commit..."
+              MERGE_MESSAGE=$(git log -1 --pretty=%B)
+              echo "Last commit message: $MERGE_MESSAGE"
+
+              if echo "$MERGE_MESSAGE" | grep -qE "Merge (pull request|branch).*(stage|dev)"; then
+                echo "This is a merge from stage or dev. Not incrementing PATCH."
+              else
+                echo "This is not a merge from stage or dev. Incrementing PATCH."
+                PATCH=$((PATCH + 1))
+              fi
+            fi
+          fi
+
+          NEW_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
+          echo "Creating or using version: $NEW_VERSION"
+
+          VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
+
+          if [ -z "$VERSION_EXISTS" ]; then
+            echo "Version doesn't exist, creating..."
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X POST "$JIRA_BASE_URL/rest/api/3/version" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"description\": \"Auto-created release\",
+                \"name\": \"$NEW_VERSION\",
+                \"projectId\": $PROJECT_ID,
+                \"released\": false
+              }"
+          else
+            echo "Version already exists, using existing one."
+          fi
+
+      - name: Output version for other workflows
+        id: version_output
+        run: |
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}" >> $GITHUB_ENV
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}" >> $GITHUB_OUTPUT
