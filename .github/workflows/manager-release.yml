@@ -62,6 +62,73 @@ jobs:
               }"
             
             echo "✅ Successfully released version $VERSION_TO_RELEASE"
+
+            # Get all issues assigned to this version
+            echo "Getting issues assigned to version $VERSION_TO_RELEASE..."
+            ISSUES=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/search?jql=fixVersion=$VERSION_TO_RELEASE&fields=key,status")
+
+            if [ $? -eq 0 ] && [ "$(echo "$ISSUES" | jq -r '.issues | length')" -gt 0 ]; then
+              echo "Found $(echo "$ISSUES" | jq -r '.issues | length') issues assigned to this version"
+
+              echo "Getting available statuses..."
+              STATUSES=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/status")
+              DONE_STATUS_ID=$(echo "$STATUSES" | jq -r '.[] | select(.name == "Done") | .id' || echo "")
+              
+              if [ -z "$DONE_STATUS_ID" ]; then
+                echo "⚠️  Could not find 'Done' status, trying alternative names..."
+                DONE_STATUS_ID=$(echo "$STATUSES" | jq -r '.[] | select(.name | test("done|complete|finished|resolved"; "i")) | .id' | head -1 || echo "")
+              fi
+
+              if [ -n "$DONE_STATUS_ID" ]; then
+                echo "Using status ID: $DONE_STATUS_ID for transitioning issues to Done"
+
+                echo "$ISSUES" | jq -r '.issues[] | .key' | while read -r ISSUE_KEY; do
+                  if [ -n "$ISSUE_KEY" ]; then
+                    echo "Processing issue: $ISSUE_KEY"
+                    
+                    ISSUE_DATA=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY?fields=status")
+                    CURRENT_STATUS=$(echo "$ISSUE_DATA" | jq -r '.fields.status.name')
+                    
+                    echo "Current status of $ISSUE_KEY: $CURRENT_STATUS"
+                    
+                    if [ "$CURRENT_STATUS" != "Done" ] && [ "$CURRENT_STATUS" != "done" ]; then
+                      # Get available transitions for this issue
+                      TRANSITIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/transitions")
+                      
+                      TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r --arg TARGET_ID "$DONE_STATUS_ID" '.transitions[] | select(.to.id == $TARGET_ID) | .id' | head -1)
+                      
+                      if [ -n "$TRANSITION_ID" ] && [ "$TRANSITION_ID" != "null" ]; then
+                        echo "Transitioning $ISSUE_KEY to Done (transition ID: $TRANSITION_ID)"
+                        
+                        TRANSITION_RESULT=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+                          -X POST "$JIRA_BASE_URL/rest/api/3/issue/$ISSUE_KEY/transitions" \
+                          -H "Content-Type: application/json" \
+                          -d "{
+                            \"transition\": {
+                              \"id\": \"$TRANSITION_ID\"
+                            }
+                          }")
+                        
+                        if [ $? -eq 0 ]; then
+                          echo "✅ Successfully transitioned $ISSUE_KEY to Done"
+                        else
+                          echo "❌ Failed to transition $ISSUE_KEY to Done"
+                        fi
+                      else
+                        echo "⚠️  No valid transition found for $ISSUE_KEY to Done status"
+                      fi
+                    else
+                      echo "ℹ️  Issue $ISSUE_KEY is already in Done status, skipping"
+                    fi
+                  fi
+                done
+              else
+                echo "❌ Could not find appropriate 'Done' status. Available statuses:"
+                echo "$STATUSES" | jq -r '.[] | .name' | head -10
+              fi
+            else
+              echo "ℹ️  No issues found assigned to version $VERSION_TO_RELEASE"
+            fi
           else
             echo "❌ Version $VERSION_TO_RELEASE not found in Jira. Available versions:"
             echo "$VERSIONS" | jq -r '.[] | select(.released == false) | .name' || echo "No unreleased versions found"
