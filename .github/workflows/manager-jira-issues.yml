@@ -23,6 +23,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Debug conditions
         run: |
           echo "Branch name: ${{ github.ref_name }}"
@@ -35,9 +36,14 @@ jobs:
 
       - name: Update Jira Issues and Move to RFQA
         if: (github.ref_name == 'dev' || github.ref_name == 'stage') && !contains(github.event.head_commit.message, 'Merge pull request')
+        env:
+          NEW_VERSION: ${{ inputs.new_version }}
         run: |
           echo "Updating issues FixVersion and moving to RFQA..."
-          echo "Version to be set: ${{ inputs.new_version }}"
+          echo "Input new_version: '${{ inputs.new_version }}'"
+          echo "NEW_VERSION env: '$NEW_VERSION'"
+          echo "Input new_version length: ${{ length(inputs.new_version) }}"
+          echo "Input new_version type: $(echo '${{ inputs.new_version }}' | wc -c)"
           COMMITS=$(git log -1 --pretty=%B)
           echo "Commits: $COMMITS"
 
@@ -45,7 +51,7 @@ jobs:
 
           for issue in $ISSUE_KEYS; do
             echo "Processing issue $issue"
-            echo "Setting version '${{ inputs.new_version }}' for issue $issue"
+            echo "Setting version '$NEW_VERSION' for issue $issue"
 
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$issue" \
@@ -54,7 +60,7 @@ jobs:
                 \"update\": {
                   \"fixVersions\": [
                     {
-                      \"add\": {\"name\": \"${{ inputs.new_version }}\"}
+                      \"add\": {\"name\": \"$NEW_VERSION\"}
                     }
                   ]
                 }

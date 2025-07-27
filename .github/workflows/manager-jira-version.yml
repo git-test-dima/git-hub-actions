@@ -37,6 +37,7 @@ jobs:
           echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
 
       - name: Find or Use Existing Version
+        id: version_output
         run: |
           echo "Finding existing versions..."
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
@@ -119,6 +120,7 @@ jobs:
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
           echo "Creating or using version: $NEW_VERSION"
+          echo "Debug: NEW_VERSION set to: $NEW_VERSION"
 
           VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
 
@@ -137,10 +139,19 @@ jobs:
             echo "Version already exists, using existing one."
           fi
 
-      - name: Output version for other workflows
-        id: version_output
-        run: |
-          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
-          echo "VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}" >> $GITHUB_ENV
+          # Set outputs in the same step
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}" >> $GITHUB_OUTPUT
+          echo "Debug: Set NEW_VERSION output to: $NEW_VERSION"
+          echo "Debug: Set VERSION_WITHOUT_PREFIX output to: ${NEW_VERSION#"IT"}"
+          echo "Debug: All outputs set"
+          echo "Debug: NEW_VERSION value: '$NEW_VERSION'"
+          echo "Debug: VERSION_WITHOUT_PREFIX value: '${NEW_VERSION#"IT"}'"
+
+      - name: Debug outputs
+        run: |
+          echo "Debug: Checking outputs after version_output step"
+          echo "NEW_VERSION from step: '${{ steps.version_output.outputs.NEW_VERSION }}'"
+          echo "VERSION_WITHOUT_PREFIX from step: '${{ steps.version_output.outputs.VERSION_WITHOUT_PREFIX }}'"
+          echo "Debug: All step outputs"
+          echo "${{ toJSON(steps.version_output.outputs) }}"
