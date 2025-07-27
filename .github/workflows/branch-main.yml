@@ -23,6 +23,7 @@ jobs:
     uses: ./.github/workflows/manager-jira-issues.yml
     with:
       new_version: ${{ needs.jira-version-manager.outputs.NEW_VERSION }}
+      branch_name: main
     secrets:
       JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
       JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
