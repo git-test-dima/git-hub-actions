@@ -6,6 +6,10 @@ on:
       branch_name:
         required: true
         type: string
+      force_new_version:
+        required: false
+        type: boolean
+        default: false
     secrets:
       JIRA_EMAIL:
         required: true
@@ -43,6 +47,7 @@ jobs:
         id: version_output
         run: |
           echo "Finding existing versions..."
+          echo "Force new version: ${{ inputs.force_new_version }}"
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
           # Debug: Print the response structure
@@ -65,21 +70,11 @@ jobs:
             exit 1
           fi
 
-          if [[ "${{ inputs.branch_name }}" == "dev" ]]; then
-            echo "Processing dev branch..."
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
-            echo "Last version for dev: $LAST_VERSION"
-          elif [[ "${{ inputs.branch_name }}" == "stage" || "${{ inputs.branch_name }}" == "main" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
-          fi
-
-          echo "Available versions:"
-          echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name' || echo "No unreleased versions found"
-
-          if [ -z "$LAST_VERSION" ]; then
-            echo "No unreleased version found, checking released versions..."
+          # Creating new version for freeze action
+          if [[ "${{ inputs.force_new_version }}" == "true" ]]; then
+            echo "Force creating new version due to freeze commit..."
             LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
-
+            
             if [ -z "$LAST_RELEASED_VERSION" ]; then
               echo "No released versions found, defaulting to IT1.0.0"
               PREFIX="IT"
@@ -98,23 +93,58 @@ jobs:
               PATCH=0
             fi
           else
-            echo "Found last version: $LAST_VERSION"
-            PREFIX=${LAST_VERSION%%[0-9]*}
-            VERSION_NUM=${LAST_VERSION#$PREFIX}
-            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
-            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
-            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+            # Regular commits
+            if [[ "${{ inputs.branch_name }}" == "dev" ]]; then
+              echo "Processing dev branch..."
+              LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
+              echo "Last version for dev: $LAST_VERSION"
+            elif [[ "${{ inputs.branch_name }}" == "stage" || "${{ inputs.branch_name }}" == "main" ]]; then
+              LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
+            fi
 
-            if [[ "${{ inputs.branch_name }}" == "main" ]]; then
-              echo "Checking if this is a merge commit..."
-              MERGE_MESSAGE=$(git log -1 --pretty=%B)
-              echo "Last commit message: $MERGE_MESSAGE"
+            echo "Available versions:"
+            echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name' || echo "No unreleased versions found"
 
-              if echo "$MERGE_MESSAGE" | grep -qE "Merge (pull request|branch).*(stage|dev)"; then
-                echo "This is a merge from stage or dev. Not incrementing PATCH."
+            if [ -z "$LAST_VERSION" ]; then
+              echo "No unreleased version found, checking released versions..."
+              LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
+
+              if [ -z "$LAST_RELEASED_VERSION" ]; then
+                echo "No released versions found, defaulting to IT1.0.0"
+                PREFIX="IT"
+                MAJOR=1
+                MINOR=0
+                PATCH=0
               else
-                echo "This is not a merge from stage or dev. Incrementing PATCH."
-                PATCH=$((PATCH + 1))
+                echo "Found last released version: $LAST_RELEASED_VERSION"
+                PREFIX=${LAST_RELEASED_VERSION%%[0-9]*}
+                VERSION_NUM=${LAST_RELEASED_VERSION#$PREFIX}
+                MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+                MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+                PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+                MINOR=$((MINOR + 1))
+                PATCH=0
+              fi
+            else
+              echo "Found last version: $LAST_VERSION"
+              PREFIX=${LAST_VERSION%%[0-9]*}
+              VERSION_NUM=${LAST_VERSION#$PREFIX}
+              MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+              MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+              PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+              if [[ "${{ inputs.branch_name }}" == "main" ]]; then
+                echo "Checking if this is a merge commit..."
+                MERGE_MESSAGE=$(git log -1 --pretty=%B)
+                echo "Last commit message: $MERGE_MESSAGE"
+
+                if echo "$MERGE_MESSAGE" | grep -qE "Merge (pull request|branch).*(stage|dev)"; then
+                  echo "This is a merge from stage or dev. Not incrementing PATCH."
+                else
+                  echo "This is not a merge from stage or dev. Incrementing PATCH."
+                  PATCH=$((PATCH + 1))
+                fi
               fi
             fi
           fi
@@ -146,8 +176,6 @@ jobs:
 
           # Set outputs
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}" >> $GITHUB_OUTPUT
           echo "Debug: Set NEW_VERSION output to: $NEW_VERSION"
-          echo "Debug: Set VERSION_WITHOUT_PREFIX output to: ${NEW_VERSION#"IT"}"
         env:
           NEW_VERSION: ${{ env.NEW_VERSION }}
