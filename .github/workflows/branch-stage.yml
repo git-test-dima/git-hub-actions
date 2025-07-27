@@ -26,7 +26,28 @@ jobs:
             echo "No 'freeze' found in commit message"
           fi
 
+  check-freeze-commit:
+    runs-on: ubuntu-latest
+    outputs:
+      has-freeze: ${{ steps.check-commit.outputs.has-freeze }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for freeze in commit message
+        id: check-commit
+        run: |
+          COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+          echo "Commit message: $COMMIT_MESSAGE"
+
+          if echo "$COMMIT_MESSAGE" | grep -qi "freeze"; then
+            echo "has-freeze=true" >> $GITHUB_OUTPUT
+            echo "Found 'freeze' in commit message, will create new version"
+          else
+            echo "has-freeze=false" >> $GITHUB_OUTPUT
+            echo "No 'freeze' found in commit message"
+          fi
+
   jira-version-manager:
+    needs: check-freeze-commit
     needs: check-freeze-commit
     uses: ./.github/workflows/manager-jira-version.yml
     with:
