@@ -22,8 +22,6 @@ on:
         required: true
       WORKFLOW:
         required: true
-      GITHUB_TOKEN:
-        required: true
 
 jobs:
   manage-releases:
@@ -36,7 +34,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Release version in Jira
         if: inputs.should_release_jira_version == true
         run: |
@@ -75,7 +72,7 @@ jobs:
           git tag $TAG_NAME
           git push origin $TAG_NAME
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Create GitHub Release
         if: inputs.should_create_github_release == true

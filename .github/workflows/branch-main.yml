@@ -56,4 +56,3 @@ jobs:
       JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
       JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
       WORKFLOW: ${{ secrets.WORKFLOW }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
