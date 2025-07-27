@@ -41,7 +41,6 @@ jobs:
 
           VERSIONS=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
-          # Debug: Print the response structure
           echo "Versions response structure:"
           echo "$VERSIONS" | jq -r 'type'
 

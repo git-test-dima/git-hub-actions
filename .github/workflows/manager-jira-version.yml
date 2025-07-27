@@ -50,7 +50,6 @@ jobs:
           echo "Force new version: ${{ inputs.force_new_version }}"
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
-          # Debug: Print the response structure
           echo "Response structure:"
           echo "$RESPONSE" | jq -r 'type'
           echo "Response content:"
@@ -128,9 +127,6 @@ jobs:
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
           echo "Creating or using version: $NEW_VERSION"
-          echo "Debug: NEW_VERSION set to: $NEW_VERSION"
-          echo "Debug: PREFIX=$PREFIX, MAJOR=$MAJOR, MINOR=$MINOR, PATCH=$PATCH"
-          echo "Debug: NEW_VERSION value: '$NEW_VERSION'"
 
           VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
 
