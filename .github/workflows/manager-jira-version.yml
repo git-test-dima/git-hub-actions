@@ -20,9 +20,7 @@ jobs:
   manage-jira-versions:
     runs-on: ubuntu-latest
     outputs:
-      new-version:
-        description: "Jira version"
-        value: ${{ jobs.set-version.outputs.new-version }}
+      new-version: ${{ steps.version_output.outputs.NEW_VERSION }}
     env:
       JIRA_BASE_URL: https://iamdima.atlassian.net
       JIRA_PROJECT_KEY: IT
