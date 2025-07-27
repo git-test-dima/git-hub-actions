@@ -27,6 +27,7 @@ jobs:
         if: (github.ref_name == 'dev' || github.ref_name == 'stage') && !contains(github.event.head_commit.message, 'Merge pull request')
         run: |
           echo "Updating issues FixVersion and moving to RFQA..."
+          echo "Version to be set: ${{ inputs.new_version }}"
           COMMITS=$(git log -1 --pretty=%B)
           echo "Commits: $COMMITS"
 
@@ -34,6 +35,7 @@ jobs:
 
           for issue in $ISSUE_KEYS; do
             echo "Processing issue $issue"
+            echo "Setting version '${{ inputs.new_version }}' for issue $issue"
 
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X PUT "$JIRA_BASE_URL/rest/api/3/issue/$issue" \
