@@ -23,6 +23,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Debug conditions
+        run: |
+          echo "Branch name: ${{ github.ref_name }}"
+          echo "Commit message: ${{ github.event.head_commit.message }}"
+          echo "Condition check:"
+          echo "  github.ref_name == 'dev': ${{ github.ref_name == 'dev' }}"
+          echo "  github.ref_name == 'stage': ${{ github.ref_name == 'stage' }}"
+          echo "  contains 'Merge pull request': ${{ contains(github.event.head_commit.message, 'Merge pull request') }}"
+          echo "  Final condition: ${{ (github.ref_name == 'dev' || github.ref_name == 'stage') && !contains(github.event.head_commit.message, 'Merge pull request') }}"
+
       - name: Update Jira Issues and Move to RFQA
         if: (github.ref_name == 'dev' || github.ref_name == 'stage') && !contains(github.event.head_commit.message, 'Merge pull request')
         run: |
