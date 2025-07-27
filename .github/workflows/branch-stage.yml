@@ -31,7 +31,7 @@ jobs:
     uses: ./.github/workflows/manager-jira-version.yml
     with:
       branch_name: stage
-      force_new_version: ${{ needs.check-freeze-commit.outputs.has-freeze }}
+      force_new_version: ${{ needs.check-freeze-commit.outputs.has-freeze == 'true' }}
     secrets:
       JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
       JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
