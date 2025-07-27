@@ -41,18 +41,38 @@ jobs:
           echo "Finding existing versions..."
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
 
+          # Debug: Print the response structure
+          echo "Response structure:"
+          echo "$RESPONSE" | jq -r 'type'
+          echo "Response content:"
+          echo "$RESPONSE" | jq -r '.'
+
+          # Check if response is valid JSON and has the expected structure
+          if ! echo "$RESPONSE" | jq -e '.' > /dev/null 2>&1; then
+            echo "Error: Invalid JSON response from Jira API"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
+          # Check if response is an array
+          if ! echo "$RESPONSE" | jq -e 'type == "array"' > /dev/null 2>&1; then
+            echo "Error: Expected array response from Jira API, got: $(echo "$RESPONSE" | jq -r 'type')"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
           if [[ "${{ inputs.branch_name }}" == "dev" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
           elif [[ "${{ inputs.branch_name }}" == "stage" || "${{ inputs.branch_name }}" == "main" ]]; then
-            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1)
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
           fi
 
           echo "Available versions:"
-          echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name'
+          echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name' || echo "No unreleased versions found"
 
           if [ -z "$LAST_VERSION" ]; then
             echo "No unreleased version found, checking released versions..."
-            LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1)
+            LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
 
             if [ -z "$LAST_RELEASED_VERSION" ]; then
               echo "No released versions found, defaulting to IT1.0.0"
