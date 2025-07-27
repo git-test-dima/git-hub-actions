@@ -95,11 +95,6 @@ jobs:
               exit 1
             }
             
-            echo "📊 Branch status before merge:"
-            git status --porcelain
-            echo "📈 Commit history (last 5 commits):"
-            git log --oneline -5
-            
             echo "🔀 Attempting merge..."
             MERGE_OUTPUT=$(git merge ${{ github.ref_name }} --no-ff --no-commit 2>&1)
             MERGE_EXIT_CODE=$?
