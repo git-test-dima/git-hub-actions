@@ -73,8 +73,60 @@ jobs:
             echo "Processing dev branch..."
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
             echo "Last version for dev: $LAST_VERSION"
-          elif [[ "${{ inputs.branch_name }}" == "stage" || "${{ inputs.branch_name }}" == "main" ]]; then
+          elif [[ "${{ inputs.branch_name }}" == "stage" ]]; then
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
+          elif [[ "${{ inputs.branch_name }}" == "main" ]]; then
+            echo "Processing main branch..."
+            MERGE_MESSAGE=$(git log -1 --pretty=%B)
+            echo "Last commit message: $MERGE_MESSAGE"
+            
+            # Check if this is a release commit or Update package version
+            if echo "$MERGE_MESSAGE" | grep -qi "release" || echo "$MERGE_MESSAGE" | grep -qi "Update package version"; then
+              echo "This is a release commit or Update package version. Using existing unreleased version."
+              LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
+            else
+              echo "This is a regular commit. Finding last released version and incrementing patch."
+              LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
+              
+              if [ -z "$LAST_RELEASED_VERSION" ]; then
+                echo "No released versions found, defaulting to IT1.0.0"
+                PREFIX="IT"
+                MAJOR=1
+                MINOR=0
+                PATCH=0
+              else
+                echo "Found last released version: $LAST_RELEASED_VERSION"
+                PREFIX=${LAST_RELEASED_VERSION%%[0-9]*}
+                VERSION_NUM=${LAST_RELEASED_VERSION#$PREFIX}
+                MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+                MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+                PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+                
+                # Increment patch version
+                PATCH=$((PATCH + 1))
+              fi
+              
+              NEW_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+              echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+              
+              echo "Creating new version based on last released: $NEW_VERSION"
+              
+              # Create the new version
+              curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+                -X POST "$JIRA_BASE_URL/rest/api/3/version" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"description\": \"Auto-created hotfix version\",
+                  \"name\": \"$NEW_VERSION\",
+                  \"projectId\": $PROJECT_ID,
+                  \"released\": false
+                }"
+              
+              # Set outputs
+              echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+              echo "Set NEW_VERSION output to: $NEW_VERSION"
+              exit 0
+            fi
           fi
 
           echo "Available versions:"

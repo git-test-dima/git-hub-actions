@@ -6,6 +6,10 @@ on:
       new_version:
         required: true
         type: string
+      branch_name:
+        required: false
+        type: string
+        default: ""
     secrets:
       JIRA_EMAIL:
         required: true
@@ -25,12 +29,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Update Jira Issues and Move to RFQA
-        if: github.ref_name == 'dev' || github.ref_name == 'stage'
         env:
           NEW_VERSION: ${{ inputs.new_version }}
+          BRANCH_NAME: ${{ inputs.branch_name }}
         run: |
-          echo "Updating issues FixVersion and moving to RFQA..."
+          echo "Updating issues FixVersion and moving to appropriate status..."
           echo "Input new_version: '${{ inputs.new_version }}'"
+          echo "Branch name: '${{ inputs.branch_name }}'"
           COMMITS=$(git log -1 --pretty=%B)
           echo "Commits: $COMMITS"
 
@@ -57,10 +62,19 @@ jobs:
               -X GET "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
               -H "Accept: application/json")
 
-            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r '.transitions[] | select(.name=="RFQA") | .id')
+            # Determine target status based on branch
+            if [[ "$BRANCH_NAME" == "main" ]]; then
+              echo "Main branch detected, moving to Done"
+              TARGET_STATUS="Done"
+            else
+              echo "Non-main branch, moving to RFQA"
+              TARGET_STATUS="RFQA"
+            fi
+
+            TRANSITION_ID=$(echo "$TRANSITIONS" | jq -r --arg STATUS "$TARGET_STATUS" '.transitions[] | select(.name==$STATUS) | .id')
 
             if [ -n "$TRANSITION_ID" ]; then
-              echo "Moving issue $issue to RFQA with transition ID $TRANSITION_ID"
+              echo "Moving issue $issue to $TARGET_STATUS with transition ID $TRANSITION_ID"
 
               curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
                 -X POST "$JIRA_BASE_URL/rest/api/3/issue/$issue/transitions" \
@@ -71,6 +85,6 @@ jobs:
                   }
                 }"
             else
-              echo "Transition to RFQA not found for issue $issue, skipping."
+              echo "Transition to $TARGET_STATUS not found for issue $issue, skipping."
             fi
           done
