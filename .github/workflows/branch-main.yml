@@ -1,0 +1,61 @@
+name: Branch Main Workflow
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  jira-version-manager:
+    uses: ./.github/workflows/manager-jira-version.yml
+    with:
+      branch_name: main
+    secrets:
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+  jira-issues-manager:
+    needs: jira-version-manager
+    uses: ./.github/workflows/manager-jira-issues.yml
+    with:
+      new_version: ${{ needs.jira-version-manager.outputs.NEW_VERSION }}
+    secrets:
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+  package-version-manager:
+    needs: jira-version-manager
+    uses: ./.github/workflows/manager-package-version.yml
+    with:
+      new_version: ${{ needs.jira-version-manager.outputs.NEW_VERSION }}
+    secrets:
+      WORKFLOW: ${{ secrets.WORKFLOW }}
+
+  back-merge-manager:
+    needs: [jira-version-manager, jira-issues-manager, package-version-manager]
+    uses: ./.github/workflows/manager-back-merge.yml
+    with:
+      back_merge_targets: "stage,dev"
+    secrets:
+      WORKFLOW: ${{ secrets.WORKFLOW }}
+
+  release-manager:
+    needs:
+      [
+        jira-version-manager,
+        jira-issues-manager,
+        package-version-manager,
+        back-merge-manager,
+      ]
+    uses: ./.github/workflows/manager-release.yml
+    with:
+      new_version: ${{ needs.jira-version-manager.outputs.NEW_VERSION }}
+      should_release_jira_version: true
+      should_create_github_release: true
+    secrets:
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+      WORKFLOW: ${{ secrets.WORKFLOW }}

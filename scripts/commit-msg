@@ -14,8 +14,8 @@ if [ -z "$TICKET" ] ; then
     get_ticket "$BRANCH"
 
     if [ -z "$TICKET" ]; then
-        echo "No ticket number (ex: CORE-123) found in commit message or branch. Aborting..."
-        exit 1
+        echo "No ticket number (ex: CORE-123) found in commit message or branch."
+        exit 0
     fi
 
     TYPE=$(echo "$MESSAGE" | grep -oE "^[a-z]+")
@@ -23,9 +23,9 @@ if [ -z "$TICKET" ] ; then
     REST=$(echo "$MESSAGE" | sed -E "s/^[a-z]+: //")
 
     if [ -n "$TYPE" ] && [ -n "$REST" ]; then
-        echo "${TYPE}: ${REST} [${TICKET}]" > "$FILE"
+        echo "${TYPE}(${TICKET}): ${REST}" > "$FILE"
     else
-        echo "Invalid"
-        exit 1
+        echo "Commit message is non-conventional."
+        exit 0
     fi
 fi

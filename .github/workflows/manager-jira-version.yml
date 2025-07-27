@@ -1,0 +1,180 @@
+name: Jira Version Manager
+
+on:
+  workflow_call:
+    inputs:
+      branch_name:
+        required: true
+        type: string
+      force_new_version:
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      JIRA_EMAIL:
+        required: true
+      JIRA_TOKEN:
+        required: true
+    outputs:
+      NEW_VERSION:
+        description: "Jira version"
+        value: ${{ jobs.manage-jira-versions.outputs.new-version }}
+
+jobs:
+  manage-jira-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      new-version: ${{ steps.version_output.outputs.NEW_VERSION }}
+    env:
+      JIRA_BASE_URL: https://iamdima.atlassian.net
+      JIRA_PROJECT_KEY: IT
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set branch name
+        run: echo "BRANCH_NAME=${{ inputs.branch_name }}" >> $GITHUB_ENV
+
+      - name: Get Project ID
+        run: |
+          echo "Fetching project ID..."
+          PROJECT_INFO=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY")
+          PROJECT_ID=$(echo "$PROJECT_INFO" | jq -r '.id')
+          echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
+
+      - name: Find or Use Existing Version
+        id: version_output
+        run: |
+          echo "Finding existing versions..."
+          echo "Force new version: ${{ inputs.force_new_version }}"
+          RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
+
+          echo "Response structure:"
+          echo "$RESPONSE" | jq -r 'type'
+          echo "Response content:"
+          echo "$RESPONSE" | jq -r '.'
+
+          # Check if response is valid JSON and has the expected structure
+          if ! echo "$RESPONSE" | jq -e '.' > /dev/null 2>&1; then
+            echo "Error: Invalid JSON response from Jira API"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
+          # Check if response is an array
+          if ! echo "$RESPONSE" | jq -e 'type == "array"' > /dev/null 2>&1; then
+            echo "Error: Expected array response from Jira API, got: $(echo "$RESPONSE" | jq -r 'type')"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
+
+          if [[ "${{ inputs.branch_name }}" == "dev" ]]; then
+            echo "Processing dev branch..."
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
+            echo "Last version for dev: $LAST_VERSION"
+          elif [[ "${{ inputs.branch_name }}" == "stage" || "${{ inputs.branch_name }}" == "main" ]]; then
+            LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
+          fi
+
+          echo "Available versions:"
+          echo "$RESPONSE" | jq -r '.[] | select(.released == false) | .name' || echo "No unreleased versions found"
+
+          if [ -z "$LAST_VERSION" ]; then
+            echo "No unreleased version found, checking released versions..."
+            LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
+
+            if [ -z "$LAST_RELEASED_VERSION" ]; then
+              echo "No released versions found, defaulting to IT1.0.0"
+              PREFIX="IT"
+              MAJOR=1
+              MINOR=0
+              PATCH=0
+            else
+              echo "Found last released version: $LAST_RELEASED_VERSION"
+              PREFIX=${LAST_RELEASED_VERSION%%[0-9]*}
+              VERSION_NUM=${LAST_RELEASED_VERSION#$PREFIX}
+              MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+              MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+              PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+              MINOR=$((MINOR + 1))
+              PATCH=0
+            fi
+          else
+            echo "Found last version: $LAST_VERSION"
+            PREFIX=${LAST_VERSION%%[0-9]*}
+            VERSION_NUM=${LAST_VERSION#$PREFIX}
+            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+            if [[ "${{ inputs.branch_name }}" == "main" ]]; then
+              echo "Checking if this is a merge commit..."
+              MERGE_MESSAGE=$(git log -1 --pretty=%B)
+              echo "Last commit message: $MERGE_MESSAGE"
+
+              if echo "$MERGE_MESSAGE" | grep -qE "Merge (pull request|branch).*(stage|dev)"; then
+                echo "This is a merge from stage or dev. Not incrementing PATCH."
+              else
+                echo "This is not a merge from stage or dev. Incrementing PATCH."
+                PATCH=$((PATCH + 1))
+              fi
+            fi
+          fi
+
+          NEW_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
+          echo "Creating or using version: $NEW_VERSION"
+
+          VERSION_EXISTS=$(echo "$RESPONSE" | jq -r --arg NAME "$NEW_VERSION" '.[] | select(.name == $NAME) | .id')
+
+          if [ -z "$VERSION_EXISTS" ]; then
+            echo "Version doesn't exist, creating..."
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X POST "$JIRA_BASE_URL/rest/api/3/version" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"description\": \"Auto-created release\",
+                \"name\": \"$NEW_VERSION\",
+                \"projectId\": $PROJECT_ID,
+                \"released\": false
+              }"
+          else
+            echo "Version already exists, using existing one."
+          fi
+
+          # Set outputs
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Debug: Set NEW_VERSION output to: $NEW_VERSION"
+
+
+          # If force_new_version is true, create an additional release version
+          if [[ "${{ inputs.force_new_version }}" == true ]]; then
+            echo "Creating new version due to freeze commit..."
+            FREEZED_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+            
+            echo "Using frozen version as base: $FREEZED_VERSION"
+            PREFIX=${FREEZED_VERSION%%[0-9]*}
+            VERSION_NUM=${FREEZED_VERSION#$PREFIX}
+            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+
+            MINOR=$((MINOR + 1))
+            
+            curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
+              -X POST "$JIRA_BASE_URL/rest/api/3/version" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"description\": \"Auto-created release\",
+                \"name\": \"${PREFIX}${MAJOR}.${MINOR}.${PATCH}\",
+                \"projectId\": $PROJECT_ID,
+                \"released\": false
+              }"                          
+            echo "Creating new release version after freeze: ${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+            echo "Freezed version is: $FREEZED_VERSION"
+          fi
+        env:
+          NEW_VERSION: ${{ env.NEW_VERSION }}

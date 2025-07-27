@@ -1,0 +1,47 @@
+name: Package Version Manager
+
+on:
+  workflow_call:
+    inputs:
+      new_version:
+        required: true
+        type: string
+        description: "New version to set in package.json"
+    secrets:
+      WORKFLOW:
+        required: true
+
+jobs:
+  update-package-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update package.json and package-lock.json version
+        run: |
+          VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          if [ "$CURRENT_VERSION" = "$VERSION_WITHOUT_PREFIX" ]; then
+            echo "SKIP_VERSION_UPDATE=true" >> $GITHUB_ENV
+          else
+            npm version --no-git-tag-version "$VERSION_WITHOUT_PREFIX"
+            echo "SKIP_VERSION_UPDATE=false" >> $GITHUB_ENV
+          fi
+        env:
+          NEW_VERSION: ${{ inputs.new_version }}
+
+      - name: Commit updated package files if version changed
+        if: env.SKIP_VERSION_UPDATE == 'false'
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git add package.json package-lock.json
+          git commit -m "🔖 Update package version to ${{ inputs.new_version }}"
+
+      - name: Push changes if version changed
+        if: env.SKIP_VERSION_UPDATE == 'false'
+        run: |
+          git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
+          git push origin HEAD:${{ github.ref_name }}

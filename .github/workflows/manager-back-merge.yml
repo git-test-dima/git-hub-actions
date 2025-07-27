@@ -1,0 +1,61 @@
+name: Back Merge Manager
+
+on:
+  workflow_call:
+    inputs:
+      back_merge_targets:
+        required: true
+        type: string
+        description: "Comma-separated list of target branches for back-merge"
+    secrets:
+      WORKFLOW:
+        required: true
+
+jobs:
+  perform-back-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Prepare back-merge
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW }}
+
+      - name: Perform back-merge
+        run: |
+          set -eo pipefail
+
+          echo "🔧 Configuring Git user"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "🔑 Setting up authentication"
+          git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
+
+          echo "🔍 Testing authentication..."
+          git ls-remote --heads origin > /dev/null || { echo "❌ Authentication failed"; exit 1; }
+          echo "✅ Authentication successful"
+
+          echo "📥 Fetching all branches"
+          git fetch --all --prune
+
+          IFS=',' read -ra TARGETS <<< "${{ inputs.back_merge_targets }}"
+          for target in "${TARGETS[@]}"; do
+            echo "📥 Fetching target branch: $target"
+            git fetch origin $target:$target || echo "⚠️ No remote $target branch"
+          done
+
+          echo "🔍 Current branch: ${{ github.ref_name }}"
+
+          for target in "${TARGETS[@]}"; do
+            echo "🚀 Merging ${{ github.ref_name }} into $target"
+            git checkout $target
+            git merge ${{ github.ref_name }} --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
+            git commit -m "🔄 Back-merge ${{ github.ref_name }} into $target"
+            git push origin $target
+          done
