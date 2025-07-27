@@ -14,24 +14,28 @@ on:
 jobs:
   perform-back-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Prepare back-merge
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW }}
 
       - name: Perform back-merge
         run: |
           set -eo pipefail
 
           echo "🔧 Configuring Git user"
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
           echo "🔑 Setting up authentication"
-          # Set up authentication for the repository
+          # Set up authentication for the repository using GITHUB_TOKEN
           git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
 
           # Verify authentication works
