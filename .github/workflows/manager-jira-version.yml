@@ -10,10 +10,6 @@ on:
         required: false
         type: boolean
         default: false
-      force_new_version:
-        required: false
-        type: boolean
-        default: false
     secrets:
       JIRA_EMAIL:
         required: true
