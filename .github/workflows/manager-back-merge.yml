@@ -35,10 +35,8 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           echo "🔑 Setting up authentication"
-          # Set up authentication for the repository using GITHUB_TOKEN
           git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
 
-          # Verify authentication works
           echo "🔍 Testing authentication..."
           git ls-remote --heads origin > /dev/null || { echo "❌ Authentication failed"; exit 1; }
           echo "✅ Authentication successful"
@@ -46,7 +44,6 @@ jobs:
           echo "📥 Fetching all branches"
           git fetch --all --prune
 
-          # Fetch target branches
           IFS=',' read -ra TARGETS <<< "${{ inputs.back_merge_targets }}"
           for target in "${TARGETS[@]}"; do
             echo "📥 Fetching target branch: $target"
@@ -55,7 +52,6 @@ jobs:
 
           echo "🔍 Current branch: ${{ github.ref_name }}"
 
-          # Perform back-merge for each target
           for target in "${TARGETS[@]}"; do
             echo "🚀 Merging ${{ github.ref_name }} into $target"
             git checkout $target

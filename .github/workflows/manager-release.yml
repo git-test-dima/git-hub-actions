@@ -26,6 +26,8 @@ on:
 jobs:
   manage-releases:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       JIRA_BASE_URL: https://iamdima.atlassian.net
       JIRA_PROJECT_KEY: IT
