@@ -90,7 +90,17 @@ jobs:
           git config --global user.name "github-actions[bot]"
 
           git tag $TAG_NAME
-          git push origin $TAG_NAME
+          PUSH_OUTPUT=$(git push origin $TAG_NAME 2>&1)
+          PUSH_EXIT_CODE=$?
+
+          if [ $PUSH_EXIT_CODE -eq 0 ]; then
+            echo "✅ Tag push successful"
+          elif echo "$PUSH_OUTPUT" | grep -q "Already up to date"; then
+            echo "✅ Tag already exists - push skipped"
+          else
+            echo "❌ Tag push failed: $PUSH_OUTPUT"
+            exit 1
+          fi
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
