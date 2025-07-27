@@ -63,7 +63,9 @@ jobs:
           fi
 
           if [[ "${{ inputs.branch_name }}" == "dev" ]]; then
+            echo "Processing dev branch..."
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
+            echo "Last version for dev: $LAST_VERSION"
           elif [[ "${{ inputs.branch_name }}" == "stage" || "${{ inputs.branch_name }}" == "main" ]]; then
             LAST_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == false) | select(.name | startswith("IT")) | .name' | sort -V | head -n1 || echo "")
           fi
