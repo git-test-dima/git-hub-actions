@@ -54,7 +54,14 @@ jobs:
       WORKFLOW: ${{ secrets.WORKFLOW }}
 
   back-merge-manager:
-    needs: [jira-version-manager, jira-issues-manager, package-version-manager]
+    needs:
+      [
+        jira-version-manager,
+        jira-issues-manager,
+        package-version-manager,
+        check-freeze-commit,
+      ]
+    if: needs.check-freeze-commit.outputs.has-freeze == 'false'
     uses: ./.github/workflows/manager-back-merge.yml
     with:
       back_merge_targets: "dev"
