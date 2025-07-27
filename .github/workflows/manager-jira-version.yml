@@ -147,7 +147,7 @@ jobs:
 
           # Set outputs
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "Debug: Set NEW_VERSION output to: $NEW_VERSION"
+          echo "Set NEW_VERSION output to: $NEW_VERSION"
 
 
           # If force_new_version is true, create an additional release version
