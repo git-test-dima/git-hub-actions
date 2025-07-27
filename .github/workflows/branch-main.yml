@@ -45,13 +45,7 @@ jobs:
       WORKFLOW: ${{ secrets.WORKFLOW }}
 
   release-manager:
-    needs:
-      [
-        jira-version-manager,
-        jira-issues-manager,
-        package-version-manager,
-        back-merge-manager,
-      ]
+    needs: [jira-version-manager, jira-issues-manager, package-version-manager]
     uses: ./.github/workflows/manager-release.yml
     with:
       new_version: ${{ needs.jira-version-manager.outputs.NEW_VERSION }}
