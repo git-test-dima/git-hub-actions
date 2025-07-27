@@ -159,25 +159,14 @@ jobs:
             echo "Creating new version due to freeze commit..."
             FREEZED_VERSION="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
             
-            LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
-            
-            if [ -z "$LAST_RELEASED_VERSION" ]; then
-              echo "No released versions found, defaulting to IT1.0.0"
-              PREFIX="IT"
-              MAJOR=1
-              MINOR=0
-              PATCH=0
-            else
-              echo "Found last released version: $LAST_RELEASED_VERSION"
-              PREFIX=${LAST_RELEASED_VERSION%%[0-9]*}
-              VERSION_NUM=${LAST_RELEASED_VERSION#$PREFIX}
-              MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
-              MINOR=$(echo $VERSION_NUM | cut -d. -f2)
-              PATCH=$(echo $VERSION_NUM | cut -d. -f3)
+            echo "Using frozen version as base: $FREEZED_VERSION"
+            PREFIX=${FREEZED_VERSION%%[0-9]*}
+            VERSION_NUM=${FREEZED_VERSION#$PREFIX}
+            MAJOR=$(echo $VERSION_NUM | cut -d. -f1)
+            MINOR=$(echo $VERSION_NUM | cut -d. -f2)
+            PATCH=$(echo $VERSION_NUM | cut -d. -f3)
 
-              MINOR=$((MINOR + 1))
-              PATCH=0
-            fi
+            MINOR=$((MINOR + 1))
             
             curl -s -u $JIRA_EMAIL:$JIRA_TOKEN \
               -X POST "$JIRA_BASE_URL/rest/api/3/version" \
@@ -188,7 +177,7 @@ jobs:
                 \"projectId\": $PROJECT_ID,
                 \"released\": false
               }"                          
-            echo "Creating new release version: ${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
+            echo "Creating new release version after freeze: ${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
             echo "Freezed version is: $FREEZED_VERSION"
           fi
         env:
