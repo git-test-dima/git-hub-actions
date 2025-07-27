@@ -40,7 +40,7 @@ jobs:
     needs: [jira-version-manager, jira-issues-manager, package-version-manager]
     uses: ./.github/workflows/manager-back-merge.yml
     with:
-      back_merge_targets: "stage,dev"
+      back_merge_targets: "stage"
     secrets:
       WORKFLOW: ${{ secrets.WORKFLOW }}
 
