@@ -55,7 +55,19 @@ jobs:
           for target in "${TARGETS[@]}"; do
             echo "🚀 Merging ${{ github.ref_name }} into $target"
             git checkout $target
-            git merge ${{ github.ref_name }} --no-ff --no-commit || { echo "❌ Merge conflict detected! Aborting..."; git merge --abort; exit 1; }
-            git commit -m "🔄 Back-merge ${{ github.ref_name }} into $target"
-            git push origin $target
+            MERGE_OUTPUT=$(git merge ${{ github.ref_name }} --no-ff --no-commit 2>&1)
+            MERGE_EXIT_CODE=$?
+            
+            if [ $MERGE_EXIT_CODE -eq 0 ]; then
+              echo "✅ Merge successful"
+              git commit -m "🔄 Back-merge ${{ github.ref_name }} into $target"
+              git push origin $target
+            elif echo "$MERGE_OUTPUT" | grep -q "Already up to date"; then
+              echo "✅ Already up to date - skipping merge"
+            else
+              echo "❌ Merge conflict detected! Aborting..."
+              echo "Merge output: $MERGE_OUTPUT"
+              git merge --abort
+              exit 1
+            fi
           done

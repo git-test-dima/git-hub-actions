@@ -44,4 +44,14 @@ jobs:
         if: env.SKIP_VERSION_UPDATE == 'false'
         run: |
           git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW }}@github.com/${{ github.repository }}
-          git push origin HEAD:${{ github.ref_name }}
+          PUSH_OUTPUT=$(git push origin HEAD:${{ github.ref_name }} 2>&1)
+          PUSH_EXIT_CODE=$?
+
+          if [ $PUSH_EXIT_CODE -eq 0 ]; then
+            echo "✅ Push successful"
+          elif echo "$PUSH_OUTPUT" | grep -q "Already up to date"; then
+            echo "✅ Already up to date - push skipped"
+          else
+            echo "❌ Push failed: $PUSH_OUTPUT"
+            exit 1
+          fi
