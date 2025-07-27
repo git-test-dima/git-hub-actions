@@ -10,6 +10,10 @@ on:
         required: false
         type: boolean
         default: false
+      force_new_version:
+        required: false
+        type: boolean
+        default: false
     secrets:
       JIRA_EMAIL:
         required: true
@@ -71,7 +75,7 @@ jobs:
           fi
 
           # Creating new version for freeze action
-          if [[ "${{ inputs.force_new_version }}" == "true" ]]; then
+          if [[ "${{ inputs.force_new_version }}" == true ]]; then
             echo "Force creating new version due to freeze commit..."
             LAST_RELEASED_VERSION=$(echo "$RESPONSE" | jq -r '.[] | select(.released == true) | select(.name | startswith("IT")) | .name' | sort -V | tail -n1 || echo "")
             
