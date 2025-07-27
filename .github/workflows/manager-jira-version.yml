@@ -20,8 +20,8 @@ jobs:
   manage-jira-versions:
     runs-on: ubuntu-latest
     outputs:
-      new-version: ${{ steps.version_output.outputs.NEW_VERSION }}
-        description: "New version created in Jira"
+      new-version:
+        description: "Jira version"
         value: ${{ jobs.set-version.outputs.new-version }}
     env:
       JIRA_BASE_URL: https://iamdima.atlassian.net
@@ -42,8 +42,6 @@ jobs:
           echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_ENV
 
       - name: Find or Use Existing Version
-        id: version_output
-        id: version_output
         run: |
           echo "Finding existing versions..."
           RESPONSE=$(curl -s -u $JIRA_EMAIL:$JIRA_TOKEN -X GET "$JIRA_BASE_URL/rest/api/3/project/$JIRA_PROJECT_KEY/versions")
@@ -148,6 +146,17 @@ jobs:
           fi
 
           # Set outputs
-          # Set outputs
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}" >> $GITHUB_OUTPUT
+          echo "Debug: Set NEW_VERSION output to: $NEW_VERSION"
+          echo "Debug: Set VERSION_WITHOUT_PREFIX output to: ${NEW_VERSION#"IT"}"
+        env:
+          NEW_VERSION: ${{ env.NEW_VERSION }}
 
+      - name: Debug outputs
+        run: |
+          echo "Debug: Checking outputs after version_output step"
+          echo "NEW_VERSION from step: '${{ steps.version_output.outputs.NEW_VERSION }}'"
+          echo "VERSION_WITHOUT_PREFIX from step: '${{ steps.version_output.outputs.VERSION_WITHOUT_PREFIX }}'"
+          echo "Debug: All step outputs"
+          echo "${{ toJSON(steps.version_output.outputs) }}"
