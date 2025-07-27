@@ -108,19 +108,21 @@ jobs:
             echo "🔢 Merge exit code: $MERGE_EXIT_CODE"
             
             if [ $MERGE_EXIT_CODE -eq 0 ]; then
-              echo "✅ Merge successful"
-              git commit -m "🔄 Back-merge ${{ github.ref_name }} into $target"
-              echo "📤 Pushing to remote..."
-              git push origin $target || {
-                echo "❌ Failed to push to remote. This might be due to:"
-                echo "   - Branch protection rules"
-                echo "   - Insufficient permissions"
-                echo "   - Network issues"
-                exit 1
-              }
-              echo "✅ Push successful"
-            elif echo "$MERGE_OUTPUT" | grep -q "Already up to date"; then
-              echo "✅ Already up to date - skipping merge"
+              if echo "$MERGE_OUTPUT" | grep -q "Already up to date"; then
+                echo "✅ Already up to date - no conflicts, job completed successfully"
+              else
+                echo "✅ Merge successful"
+                git commit -m "🔄 Back-merge ${{ github.ref_name }} into $target"
+                echo "📤 Pushing to remote..."
+                git push origin $target || {
+                  echo "❌ Failed to push to remote. This might be due to:"
+                  echo "   - Branch protection rules"
+                  echo "   - Insufficient permissions"
+                  echo "   - Network issues"
+                  exit 1
+                }
+                echo "✅ Push successful"
+              fi
             else
               echo "❌ Merge conflict detected! Aborting..."
               echo "Merge output: $MERGE_OUTPUT"
