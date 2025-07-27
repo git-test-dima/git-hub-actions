@@ -23,6 +23,18 @@ jobs:
       JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
       JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
 
+  debug-version-transfer:
+    needs: jira-version-manager
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug version transfer
+        run: |
+          echo "Debug: Checking version transfer"
+          echo "NEW_VERSION from jira-version-manager: '${{ needs.jira-version-manager.outputs.NEW_VERSION }}'"
+          echo "VERSION_WITHOUT_PREFIX from jira-version-manager: '${{ needs.jira-version-manager.outputs.VERSION_WITHOUT_PREFIX }}'"
+          echo "All outputs from jira-version-manager:"
+          echo "${{ toJSON(needs.jira-version-manager.outputs) }}"
+
   package-version-manager:
     needs: jira-version-manager
     uses: ./.github/workflows/manager-package-version.yml
