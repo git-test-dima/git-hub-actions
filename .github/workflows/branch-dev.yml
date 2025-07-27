@@ -1,0 +1,32 @@
+name: Branch Dev Workflow
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  jira-version-manager:
+    uses: ./.github/workflows/manager-jira-version.yml
+    with:
+      branch_name: dev
+    secrets:
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+  jira-issues-manager:
+    needs: jira-version-manager
+    uses: ./.github/workflows/manager-jira-issues.yml
+    with:
+      new_version: ${{ needs.jira-version-manager.outputs.NEW_VERSION }}
+    secrets:
+      JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+      JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}
+
+  package-version-manager:
+    needs: jira-version-manager
+    uses: ./.github/workflows/manager-package-version.yml
+    with:
+      new_version: ${{ needs.jira-version-manager.outputs.NEW_VERSION }}
+    secrets:
+      WORKFLOW: ${{ secrets.WORKFLOW }}
