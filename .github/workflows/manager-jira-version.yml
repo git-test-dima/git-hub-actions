@@ -11,13 +11,18 @@ on:
         required: true
       JIRA_TOKEN:
         required: true
+    outputs:
+      NEW_VERSION:
+        description: "Jira version"
+        value: ${{ jobs.manage-jira-versions.outputs.new-version }}
 
 jobs:
   manage-jira-versions:
     runs-on: ubuntu-latest
     outputs:
-      NEW_VERSION: ${{ steps.version_output.outputs.NEW_VERSION }}
-      VERSION_WITHOUT_PREFIX: ${{ steps.version_output.outputs.VERSION_WITHOUT_PREFIX }}
+      new-version: ${{ steps.version_output.outputs.NEW_VERSION }}
+        description: "New version created in Jira"
+        value: ${{ jobs.set-version.outputs.new-version }}
     env:
       JIRA_BASE_URL: https://iamdima.atlassian.net
       JIRA_PROJECT_KEY: IT
@@ -143,16 +148,4 @@ jobs:
 
           # Set outputs
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "VERSION_WITHOUT_PREFIX=${NEW_VERSION#"IT"}" >> $GITHUB_OUTPUT
-          echo "Debug: Set NEW_VERSION output to: $NEW_VERSION"
-          echo "Debug: Set VERSION_WITHOUT_PREFIX output to: ${NEW_VERSION#"IT"}"
-          echo "Debug: All outputs set successfully"
-          echo "Debug: Final NEW_VERSION value: '$NEW_VERSION'"
 
-      - name: Debug outputs
-        run: |
-          echo "Debug: Checking outputs after version_output step"
-          echo "NEW_VERSION from step: '${{ steps.version_output.outputs.NEW_VERSION }}'"
-          echo "VERSION_WITHOUT_PREFIX from step: '${{ steps.version_output.outputs.VERSION_WITHOUT_PREFIX }}'"
-          echo "Debug: All step outputs"
-          echo "${{ toJSON(steps.version_output.outputs) }}"
