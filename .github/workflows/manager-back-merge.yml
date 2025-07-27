@@ -44,6 +44,10 @@ jobs:
           echo "📥 Fetching all branches"
           git fetch --all --prune
 
+          echo "🧹 Ensuring clean working directory"
+          git reset --hard HEAD
+          git clean -fd
+
           IFS=',' read -ra TARGETS <<< "${{ inputs.back_merge_targets }}"
           for target in "${TARGETS[@]}"; do
             echo "📥 Fetching target branch: $target"
@@ -51,23 +55,78 @@ jobs:
           done
 
           echo "🔍 Current branch: ${{ github.ref_name }}"
+          echo "📋 Available branches:"
+          git branch -a
+
+          # Verify source branch exists
+          if ! git show-ref --verify --quiet refs/heads/${{ github.ref_name }}; then
+            echo "❌ Source branch '${{ github.ref_name }}' does not exist locally"
+            exit 1
+          fi
+          echo "✅ Source branch '${{ github.ref_name }}' exists locally"
 
           for target in "${TARGETS[@]}"; do
             echo "🚀 Merging ${{ github.ref_name }} into $target"
-            git checkout $target
+            
+            # Check if target branch exists
+            if ! git show-ref --verify --quiet refs/heads/$target; then
+              echo "❌ Target branch '$target' does not exist locally"
+              echo "📥 Trying to fetch it from remote..."
+              git fetch origin $target:$target || {
+                echo "❌ Failed to fetch target branch '$target' from remote"
+                echo "🔍 Available remote branches:"
+                git ls-remote --heads origin
+                exit 1
+              }
+            fi
+            
+            echo "✅ Target branch '$target' exists locally"
+            
+            echo "🔄 Switching to target branch: $target"
+            # Clean any uncommitted changes that might prevent checkout
+            git reset --hard HEAD
+            git clean -fd
+            git checkout $target || {
+              echo "❌ Failed to checkout target branch '$target'"
+              echo "🔍 Checking available branches:"
+              git branch -a
+              echo "🔍 Checking current status:"
+              git status
+              exit 1
+            }
+            
+            echo "📊 Branch status before merge:"
+            git status --porcelain
+            echo "📈 Commit history (last 5 commits):"
+            git log --oneline -5
+            
+            echo "🔀 Attempting merge..."
             MERGE_OUTPUT=$(git merge ${{ github.ref_name }} --no-ff --no-commit 2>&1)
             MERGE_EXIT_CODE=$?
+            
+            echo "📝 Merge output: $MERGE_OUTPUT"
+            echo "🔢 Merge exit code: $MERGE_EXIT_CODE"
             
             if [ $MERGE_EXIT_CODE -eq 0 ]; then
               echo "✅ Merge successful"
               git commit -m "🔄 Back-merge ${{ github.ref_name }} into $target"
-              git push origin $target
+              echo "📤 Pushing to remote..."
+              git push origin $target || {
+                echo "❌ Failed to push to remote. This might be due to:"
+                echo "   - Branch protection rules"
+                echo "   - Insufficient permissions"
+                echo "   - Network issues"
+                exit 1
+              }
+              echo "✅ Push successful"
             elif echo "$MERGE_OUTPUT" | grep -q "Already up to date"; then
               echo "✅ Already up to date - skipping merge"
             else
               echo "❌ Merge conflict detected! Aborting..."
               echo "Merge output: $MERGE_OUTPUT"
               git merge --abort
+              echo "🔍 Checking for conflicts..."
+              git status
               exit 1
             fi
           done
