@@ -151,11 +151,3 @@ jobs:
           echo "Debug: Set VERSION_WITHOUT_PREFIX output to: ${NEW_VERSION#"IT"}"
         env:
           NEW_VERSION: ${{ env.NEW_VERSION }}
-
-      - name: Debug outputs
-        run: |
-          echo "Debug: Checking outputs after version_output step"
-          echo "NEW_VERSION from step: '${{ steps.version_output.outputs.NEW_VERSION }}'"
-          echo "VERSION_WITHOUT_PREFIX from step: '${{ steps.version_output.outputs.VERSION_WITHOUT_PREFIX }}'"
-          echo "Debug: All step outputs"
-          echo "${{ toJSON(steps.version_output.outputs) }}"

@@ -24,12 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug conditions
-        run: |
-          echo "Branch name: ${{ github.ref_name }}"
-          echo "Commit message: ${{ github.event.head_commit.message }}"
-          echo "Input new_version: ${{ inputs.new_version }}"
-
       - name: Update Jira Issues and Move to RFQA
         if: github.ref_name == 'dev' || github.ref_name == 'stage'
         env:
