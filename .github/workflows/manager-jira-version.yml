@@ -114,10 +114,10 @@ jobs:
               MERGE_MESSAGE=$(git log -1 --pretty=%B)
               echo "Last commit message: $MERGE_MESSAGE"
 
-              if echo "$MERGE_MESSAGE" | grep -qE "Merge (pull request|branch).*(stage|dev)"; then
-                echo "This is a merge from stage or dev. Not incrementing PATCH."
+              if echo "$MERGE_MESSAGE" | grep -qi "release"; then
+                echo "This is a release commit. Not incrementing PATCH."
               else
-                echo "This is not a merge from stage or dev. Incrementing PATCH."
+                echo "This is a hotfix commit. Incrementing PATCH."
                 PATCH=$((PATCH + 1))
               fi
             fi
